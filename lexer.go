@@ -54,14 +54,9 @@ func (l *Lexer) NextToken() Token {
 	}
 
 	// Handles multi-character tokens
-	switch ch {
-	case '-':
-		if l.peek() == '>' {
-			l.readChar() // Consumes '-'
-			l.readChar() // Consumes '>'
-			return Token{Type: TokenArrow, Lexeme: "->", Line: l.line, Column: col}
-		}
-		break
+	operator := l.readMultiCharSymbol(ch)
+	if operator != nil {
+		return *operator
 	}
 
 	l.pos++
@@ -84,20 +79,8 @@ func (l *Lexer) NextToken() Token {
 func (l *Lexer) readKeywordOrIdentifier() Token {
 	col := l.col
 	// Handles multi word keywords
-	if l.matchMultiWordKeyword("lớn", "hơn", "hoặc", "bằng") {
-		return Token{Type: TokenOperator, Lexeme: KeywordLonHonHoacBang, Line: l.line, Column: col}
-	}
-	if l.matchMultiWordKeyword("nhỏ", "hơn", "hoặc", "bằng") {
-		return Token{Type: TokenOperator, Lexeme: KeywordNhoHonHoacBang, Line: l.line, Column: col}
-	}
 	if l.matchMultiWordKeyword("trong", "khi") {
 		return Token{Type: TokenKeyword, Lexeme: KeywordTrongKhi, Line: l.line, Column: col}
-	}
-	if l.matchMultiWordKeyword("lớn", "hơn") {
-		return Token{Type: TokenOperator, Lexeme: KeywordLonHon, Line: l.line, Column: col}
-	}
-	if l.matchMultiWordKeyword("nhỏ", "hơn") {
-		return Token{Type: TokenOperator, Lexeme: KeywordNhoHon, Line: l.line, Column: col}
 	}
 	if l.matchMultiWordKeyword("trả", "về") {
 		return Token{Type: TokenKeyword, Lexeme: KeywordTraVe, Line: l.line, Column: col}
@@ -110,7 +93,7 @@ func (l *Lexer) readKeywordOrIdentifier() Token {
 
 	// Exception for E
 	if ident == "E" {
-		return Token{Type: TokenInType, Lexeme: "E", Line: l.line, Column: col}
+		return Token{Type: TokenOperator, Lexeme: SymbolMember, Line: l.line, Column: col}
 	}
 
 	// Handles single word keywords
@@ -153,6 +136,45 @@ func (l *Lexer) matchMultiWordKeyword(first string, rest ...string) bool {
 	}
 
 	return true
+}
+
+// Handles multi character symbols
+func (l *Lexer) readMultiCharSymbol(ch rune) *Token {
+	col := l.col
+	switch ch {
+	case '-':
+		if l.peek() == '>' {
+			l.readChar() // Consumes '-'
+			l.readChar() // Consumes '>'
+			return &Token{Type: TokenOperator, Lexeme: SymbolArrow, Line: l.line, Column: col}
+		}
+		break
+	case '<':
+		if l.peek() == '=' {
+			l.readChar()
+			l.readChar()
+			return &Token{Type: TokenOperator, Lexeme: SymbolLessEqual, Line: l.line, Column: col}
+		}
+	case '>':
+		if l.peek() == '=' {
+			l.readChar()
+			l.readChar()
+			return &Token{Type: TokenOperator, Lexeme: SymbolGreaterEqual, Line: l.line, Column: col}
+		}
+	case ':':
+		if l.peek() == '=' {
+			l.readChar()
+			l.readChar()
+			return &Token{Type: TokenOperator, Lexeme: SymbolAssign, Line: l.line, Column: col}
+		}
+	case '!':
+		if l.peek() == '=' {
+			l.readChar()
+			l.readChar()
+			return &Token{Type: TokenOperator, Lexeme: SymbolNotEqual, Line: l.line, Column: col}
+		}
+	}
+	return nil
 }
 
 // Identifier handler

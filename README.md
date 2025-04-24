@@ -6,9 +6,9 @@ Ngôn ngữ lập trình bằng tiếng Việt
 biến a, b E N32
 
 hàm chính() -> N32
-  trong khi a nhỏ hơn hoặc bằng b thì
+  trong khi a <= b hoặc b >= a và a = 1 thì
     in("nhỏ hơn")
-    a = a + 1; in(b)
+    a := a + 1; in(b)
   kết thúc
 kết thúc
 

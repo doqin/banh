@@ -15,7 +15,6 @@ const (
 	TokenSemiColon TokenType = "SEMICOLON"
 	TokenNewLine   TokenType = "NEWLINE"
 	TokenInType    TokenType = "INTYPE"
-	TokenArrow     TokenType = "ARROW"
 	TokenUnknown   TokenType = "UNKNOWN"
 )
 
@@ -27,13 +26,15 @@ type Token struct {
 }
 
 var Operators = map[string]string{
-	"=": SymbolAssign,
 	"+": SymbolPlus,
 	"-": SymbolMinus,
 	"*": SymbolAsterisk,
 	"/": SymbolSlash,
 	"%": SymbolModulo,
 	"!": SymbolBang,
+	"=": SymbolEqual,
+	"<": SymbolLess,
+	">": SymbolGreater,
 }
 
 var Symbols = map[string]TokenType{
