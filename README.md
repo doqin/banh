@@ -21,9 +21,14 @@ kết thúc
 
 Hiện trạng: Cài đặt backend LLVM
 
-- Tính năng:
-  [x] Tạo biến
-  [x] trả giá trị
-  [] Sử dụng hàm tạo ra
-  [] In giá trị ra
-  [] v.v...
+## Tính năng:
+  
+- [x] Tạo biến
+  
+- [x] Trả giá trị
+  
+- [ ] Sử dụng hàm tạo ra
+  
+- [ ] In giá trị ra
+  
+- [ ] V.V...
