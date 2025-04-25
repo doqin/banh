@@ -2,6 +2,8 @@
 
 Ngôn ngữ lập trình bằng tiếng Việt
 
+Thiết kế cuối cùng ↓
+
 ```banh
 biến a, b E N32
 
@@ -17,4 +19,11 @@ hàm cộng(a E N32, b E N32) -> N32
 kết thúc
 ```
 
-Hiện trạng: Viết Lexer
+Hiện trạng: Cài đặt backend LLVM
+
+- Tính năng:
+  [x] Tạo biến
+  [x] trả giá trị
+  [] Sử dụng hàm tạo ra
+  [] In giá trị ra
+  [] v.v...

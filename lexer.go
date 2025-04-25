@@ -88,6 +88,12 @@ func (l *Lexer) readKeywordOrIdentifier() Token {
 	if l.matchMultiWordKeyword("kết", "thúc") {
 		return Token{Type: TokenKeyword, Lexeme: KeywordKetThuc, Line: l.line, Column: col}
 	}
+	if l.matchMultiWordKeyword("lý", "luận") {
+		return Token{Type: TokenPrimitive, Lexeme: PrimitiveB1, Line: l.line, Column: col}
+	}
+	if l.matchMultiWordKeyword("ký", "tự") {
+		return Token{Type: TokenPrimitive, Lexeme: PrimitiveC32, Line: l.line, Column: col}
+	}
 
 	ident := l.readIdentifier()
 
@@ -96,9 +102,13 @@ func (l *Lexer) readKeywordOrIdentifier() Token {
 		return Token{Type: TokenOperator, Lexeme: SymbolMember, Line: l.line, Column: col}
 	}
 
+	// Handle primitive types
+	if primitiveType, ok := Primitives[ident]; ok {
+		return Token{Type: TokenPrimitive, Lexeme: primitiveType, Line: l.line, Column: col}
+	}
+
 	// Handles single word keywords
 	if keywordType, ok := Keywords[ident]; ok {
-
 		return Token{Type: TokenKeyword, Lexeme: keywordType, Line: l.line, Column: col}
 	}
 	return Token{Type: TokenIdent, Lexeme: ident, Line: l.line, Column: col}
@@ -142,6 +152,12 @@ func (l *Lexer) matchMultiWordKeyword(first string, rest ...string) bool {
 func (l *Lexer) readMultiCharSymbol(ch rune) *Token {
 	col := l.col
 	switch ch {
+	case '/':
+		if l.peek() == '/' {
+			l.readChar() // Comsumes '/'
+			l.readChar() // Consumes '/'
+			return l.skipComment()
+		}
 	case '-':
 		if l.peek() == '>' {
 			l.readChar() // Consumes '-'
@@ -225,6 +241,18 @@ func (l *Lexer) skipWhitespace() *Token {
 		l.col++
 	}
 	return nil
+}
+
+func (l *Lexer) skipComment() *Token {
+	for l.pos < len(l.input) && l.input[l.pos] != '\n' {
+		l.pos++
+		l.col++
+	}
+	col, line := l.col, l.line
+	l.line++
+	l.pos++
+	l.col = 1
+	return &Token{Type: TokenNewLine, Lexeme: "\\n", Line: line, Column: col}
 }
 
 // Letter handler

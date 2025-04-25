@@ -33,12 +33,71 @@ func main() {
 	}
 
 	lexer := NewLexer(content)
+	var tokens []Token
 	for {
 		tok := lexer.NextToken()
-		fmt.Printf("%+v\n", tok)
+		tokens = append(tokens, tok)
+		if slices.Contains(args, "--print-token") {
+			fmt.Printf("%+v\n", tok)
+		}
 		if tok.Type == TokenEOF {
 			break
 		}
+	}
+
+	parser := NewParser(tokens)
+	program, err := parser.ParseProgram()
+	if err != nil {
+		log.Fatal("Không thể parse chương trình:\n", err)
+	}
+	if slices.Contains(args, "--print-function") {
+		printProgram(program)
+	}
+}
+
+func printProgram(p *Program) {
+	fmt.Println("Program:")
+	for _, fn := range p.Functions {
+		printFunction(fn)
+	}
+}
+
+func printFunction(f *Function) {
+	fmt.Printf("  Function: %s (Line %d, Column %d)\n", f.Name, f.Line, f.Column)
+	fmt.Printf("    Parameters:\n")
+	for _, param := range f.Parameters {
+		fmt.Printf("      - %s: %s (Line %d, Column %d)\n", param.Name, param.Type, param.Line, param.Column)
+	}
+	fmt.Printf("    Return Type: %s\n", f.ReturnType)
+	fmt.Printf("    Body:\n")
+	for _, stmt := range f.Body {
+		printStatement(stmt, "      ")
+	}
+}
+
+func printStatement(s Statement, indent string) {
+	switch stmt := s.(type) {
+	case *VarDecl:
+		fmt.Printf("%sVarDecl: %s: %s = ", indent, stmt.Var.Name, stmt.Var.Type)
+		printExpression(stmt.Value, "")
+		fmt.Printf(" (Line %d, Column %d)\n", stmt.Line, stmt.Column)
+	case *ReturnStmt:
+		fmt.Printf("%sReturn: ", indent)
+		printExpression(stmt.Value, "")
+		fmt.Printf(" (Line %d, Column %d)\n", stmt.Line, stmt.Column)
+	default:
+		fmt.Printf("%sUnknown Statement\n", indent)
+	}
+}
+
+func printExpression(e Expression, indent string) {
+	switch expr := e.(type) {
+	case *Identifier:
+		fmt.Printf("Identifier(%s)", expr.Name)
+	case *NumberLiteral:
+		fmt.Printf("NumberLiteral(%s: %s)", expr.Value, expr.Type)
+	default:
+		fmt.Printf("Unknown Expression")
 	}
 }
 

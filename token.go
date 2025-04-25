@@ -14,7 +14,7 @@ const (
 	TokenComma     TokenType = "COMMA"
 	TokenSemiColon TokenType = "SEMICOLON"
 	TokenNewLine   TokenType = "NEWLINE"
-	TokenInType    TokenType = "INTYPE"
+	TokenPrimitive TokenType = "PRIMITIVE"
 	TokenUnknown   TokenType = "UNKNOWN"
 )
 

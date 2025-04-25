@@ -1,0 +1,81 @@
+package main
+
+type Node interface {
+	Pos() (line, column int)
+}
+
+type Program struct {
+	Functions []*Function
+}
+
+type Function struct {
+	Name       string
+	Parameters []*Variable
+	ReturnType string
+	Body       []Statement
+	Line       int
+	Column     int
+}
+
+func (f *Function) Pos() (int, int) { return f.Line, f.Column }
+
+type Variable struct {
+	Name   string
+	Type   string
+	Line   int
+	Column int
+}
+
+func (v *Variable) Pos() (int, int) { return v.Line, v.Column }
+
+type Statement interface {
+	Node
+	statementNode()
+}
+
+type Expression interface {
+	Node
+	expressionNode()
+}
+
+// Example statement
+type VarDecl struct {
+	Var    *Variable
+	Value  Expression
+	Line   int
+	Column int
+}
+
+func (v *VarDecl) statementNode()  {}
+func (v *VarDecl) Pos() (int, int) { return v.Line, v.Column }
+
+type ReturnStmt struct {
+	Value  Expression
+	Line   int
+	Column int
+}
+
+func (r *ReturnStmt) statementNode()  {}
+func (r *ReturnStmt) Pos() (int, int) { return r.Line, r.Column }
+
+// Example expressions
+type Identifier struct {
+	Name   string
+	Line   int
+	Column int
+}
+
+func (i *Identifier) expressionNode() {}
+func (i *Identifier) Pos() (int, int) { return i.Line, i.Column }
+
+type NumberLiteral struct {
+	Value  string
+	Type   string
+	Line   int
+	Column int
+}
+
+func (n *NumberLiteral) expressionNode() {}
+func (n *NumberLiteral) Pos() (int, int) { return n.Line, n.Column }
+
+// Add more node types like BinaryExpr or CallExpr, etc.
