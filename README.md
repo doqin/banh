@@ -19,9 +19,9 @@ hàm cộng(a E N32, b E N32) -> N32
 kết thúc
 ```
 
-Hiện trạng: Cài đặt backend LLVM
+Hiện trạng: Hoạt động tàm tạm, cần phải cài đặt thêm cách giải quyết kiểu dữ liệu các kiểu
 
-## Tính năng:
+## Tính năng
   
 - [x] Tạo biến
   

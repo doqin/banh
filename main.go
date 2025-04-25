@@ -4,11 +4,10 @@ import (
 	"fmt"
 	"log"
 	"os"
-
-	"github.com/llir/llvm/ir"
-	"github.com/llir/llvm/ir/constant"
-	"github.com/llir/llvm/ir/types"
+	"os/exec"
+	"path/filepath"
 	"slices"
+	"strings"
 )
 
 func main() {
@@ -16,10 +15,15 @@ func main() {
 	if len(args) < 2 {
 		log.Fatal("No file to read from. Aborting!")
 	}
-	filename := args[1]
-	fmt.Println("Reading: ", filename)
+	var files []string
+	for _, arg := range args {
+		if strings.HasSuffix(arg, ".bnh") {
+			files = append(files, arg)
+		}
+	}
+	fmt.Println("Đang đọc tệp: ", files[0])
 
-	data, err := os.ReadFile(filename)
+	data, err := os.ReadFile(files[0])
 	if err != nil {
 		log.Fatal("Error reading", err)
 	}
@@ -28,10 +32,11 @@ func main() {
 	if slices.Contains(args, "--print-char") {
 		runes := []rune(content)
 		for index, letter := range runes {
-			fmt.Printf("Character at byte %d: %c (U+%04X)\n", index, letter, letter)
+			fmt.Printf("Ký tự tại byte %d: %c (U+%04X)\n", index, letter, letter)
 		}
 	}
 
+	// Lex source code
 	lexer := NewLexer(content)
 	var tokens []Token
 	for {
@@ -45,16 +50,53 @@ func main() {
 		}
 	}
 
+	// Parse tokens
 	parser := NewParser(tokens)
 	program, err := parser.ParseProgram()
 	if err != nil {
 		log.Fatal("Không thể parse chương trình:\n", err)
 	}
-	if slices.Contains(args, "--print-function") {
+	if slices.Contains(args, "--print-program") {
 		printProgram(program)
+		fmt.Println()
 	}
+
+	// Generate code
+	module, err := GenerateLLVMIR(program)
+	if err != nil {
+		log.Fatal("Gặp sự cố khi tạo code:\n", err)
+	}
+	if slices.Contains(args, "--print-ir") {
+		fmt.Println(module.String())
+	}
+
+	// Write '.ll' file
+	fileName := files[0]
+	output := fileName[:len(fileName)-len(filepath.Ext(fileName))]
+	irFile, err := os.Create(output + ".ll")
+	if err != nil {
+		log.Fatal("Gặp sự cố khi tạo file IR:\n", err)
+	}
+	defer irFile.Close()
+	irFile.Write([]byte(module.String()))
+
+	// Generate executable
+	cmd := exec.Command("llc", "-filetype=obj", "-o", output+".o", output+".ll")
+	err = cmd.Run()
+	if err != nil {
+		log.Fatalf("Gặp sự cố chạy lệnh 'llc': %v", err)
+	}
+
+	cmd = exec.Command("clang", output+".o", "-o", output)
+	err = cmd.Run()
+	if err != nil {
+		log.Fatalf("Gặp sự cố chạy lệnh 'clang': %v", err)
+	}
+
+	fmt.Printf("Chương trình được tạo ở: %s\n", output)
 }
 
+// Helper functions
 func printProgram(p *Program) {
 	fmt.Println("Program:")
 	for _, fn := range p.Functions {
@@ -98,35 +140,5 @@ func printExpression(e Expression, indent string) {
 		fmt.Printf("NumberLiteral(%s: %s)", expr.Value, expr.Type)
 	default:
 		fmt.Printf("Unknown Expression")
-	}
-}
-
-func test() {
-	// Create a new LLVM IR module
-	m := ir.NewModule()
-
-	// Define the main function: int main()
-	mainFunc := m.NewFunc("main", types.I32)
-
-	// Create an entry basic block.
-	entry := mainFunc.NewBlock("")
-
-	// Return the constant integer 42.
-	entry.NewRet(constant.NewInt(types.I32, 42))
-
-	// Write the LLVM IR assembly to a file
-	f, err := os.Create("main.ll")
-	if err != nil {
-		log.Fatal("Failed to create file:", err)
-	}
-	defer func(f *os.File) {
-		err := f.Close()
-		if err != nil {
-			log.Fatal("Couldn't close file:", err)
-		}
-	}(f)
-	_, err = f.WriteString(m.String())
-	if err != nil {
-		return
 	}
 }

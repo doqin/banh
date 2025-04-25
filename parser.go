@@ -149,6 +149,9 @@ func (p *Parser) parseFunction() (*Function, error) {
 			return nil, NewLangError(ExpectToken, "xuống dòng hoặc ';'").At(p.current.Line, p.current.Column)
 		}
 		p.nextToken()
+		for p.current.Type == TokenNewLine {
+			p.nextToken()
+		}
 	}
 
 	// Expect 'kết thúc'

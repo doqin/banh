@@ -1,5 +1,9 @@
 package main
 
+import (
+	"github.com/llir/llvm/ir/value"
+)
+
 type Node interface {
 	Pos() (line, column int)
 }
@@ -31,11 +35,13 @@ func (v *Variable) Pos() (int, int) { return v.Line, v.Column }
 type Statement interface {
 	Node
 	statementNode()
+	Codegen(ctx *CodegenContext) (value.Value, error)
 }
 
 type Expression interface {
 	Node
 	expressionNode()
+	Codegen(ctx *CodegenContext) (value.Value, error)
 }
 
 // Example statement
