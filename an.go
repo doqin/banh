@@ -16,7 +16,8 @@ func an() {
 	fmt.Println("🍽️ Đang ăn bánh...")
 	xuat := cth.BanDung.Xuat
 	cmd := exec.Command(xuat)
-	err := cmd.Run()
+	out, err := cmd.CombinedOutput()
+	fmt.Println(string(out))
 	if err != nil {
 		log.Fatal("Gặp sự cố chạy chương trình:\n", err)
 	}

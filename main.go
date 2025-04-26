@@ -16,5 +16,8 @@ func main() {
 		break
 	case "an":
 		an()
+		break
+	default:
+		log.Fatal("Không nhận diện được câu lệnh, làm ơn thử lại!")
 	}
 }

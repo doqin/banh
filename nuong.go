@@ -60,6 +60,10 @@ func nuong() {
 	if err != nil {
 		log.Fatal("Không thể parse chương trình:\n", err)
 	}
+
+	checker := &TypeChecker{}
+	checker.AnalyzeProgram(program)
+
 	if slices.Contains(args, "--in-chuong-trinh") {
 		printProgram(program)
 		fmt.Println()
@@ -85,15 +89,19 @@ func nuong() {
 
 	// Generate executable
 	cmd := exec.Command("llc", "-filetype=obj", "-o", output+".o", output+".ll")
-	err = cmd.Run()
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		log.Fatalf("Gặp sự cố chạy lệnh 'llc': %v", err)
+		fmt.Println(string(out))
+		fmt.Printf("Gặp sự cố chạy lệnh 'llc': %v\n", err)
+		os.Exit(1)
 	}
 
 	cmd = exec.Command("clang", output+".o", "-o", output)
-	err = cmd.Run()
+	out, err = cmd.CombinedOutput()
 	if err != nil {
-		log.Fatalf("Gặp sự cố chạy lệnh 'clang': %v", err)
+		fmt.Println(string(out))
+		log.Fatalf("Gặp sự cố chạy lệnh 'clang': %v\n", err)
+		os.Exit(1)
 	}
 
 	fmt.Println("✅ Bánh đã chín! Có thể ăn được rồi.")

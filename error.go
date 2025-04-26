@@ -9,9 +9,11 @@ const (
 	UnexpectedToken
 	WrongToken
 	TypeMismatch
+	ReturnTypeMismatch
 	UndeclaredIdentifier
 	MissingReturn
 	InvalidFunctionCall
+	RedeclarationVar
 )
 
 var errorMessagesVi = map[ErrorID]string{
@@ -19,9 +21,11 @@ var errorMessagesVi = map[ErrorID]string{
 	UnexpectedToken:      "Không mong đợi ký hiệu '%v' ở vị trí này.",
 	WrongToken:           "Mong đợi ký hiệu '%v' thay vì '%v' ở vị trí này.",
 	TypeMismatch:         "Không thể gán kiểu '%v' cho '%v'.",
+	ReturnTypeMismatch:   "Không thể trả về giá trị kiểu '%v', mong đợi kiểu '%v'",
 	UndeclaredIdentifier: "Không tìm thấy định danh '%v'.",
 	MissingReturn:        "Thiếu câu lệnh trả về trong hàm có kiểu trả về '%v'.",
 	InvalidFunctionCall:  "Hàm '%v' không tồn tại hoặc sai kiểu tham số.",
+	RedeclarationVar:     "Lỗi khai báo lại biến '%v'",
 }
 
 type LangError struct {

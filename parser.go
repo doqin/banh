@@ -256,7 +256,7 @@ func (p *Parser) parseReturnStmt() (Statement, error) {
 func (p *Parser) parseExpression() (Expression, error) {
 	switch p.current.Type {
 	case TokenIdent:
-		id := &Identifier{Name: p.current.Lexeme, Line: p.current.Line, Column: p.current.Column}
+		id := &Identifier{Name: p.current.Lexeme, Type: "Unknown", Line: p.current.Line, Column: p.current.Column}
 		p.nextToken()
 		return id, nil
 	case TokenNumber:

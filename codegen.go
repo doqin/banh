@@ -24,9 +24,12 @@ func (fn *Function) Codegen(ctx *CodegenContext) (*ir.Func, error) {
 	// For simplicity, assume no parameters and return type i32
 	var fnIR *ir.Func
 	if fn.Name == "chính" {
-		fnIR = ctx.Module.NewFunc("main", types.I32)
+		if fn.ReturnType != PrimitiveN32 {
+			return nil, NewLangError(ReturnTypeMismatch, fn.ReturnType, PrimitiveN32).At(fn.Line, fn.Column)
+		}
+		fnIR = ctx.Module.NewFunc("main", llvmTypeFromPrimitive(fn.ReturnType))
 	} else {
-		fnIR = ctx.Module.NewFunc(fn.Name, types.I32)
+		fnIR = ctx.Module.NewFunc(fn.Name, llvmTypeFromPrimitive(fn.ReturnType))
 	}
 
 	entry := fnIR.NewBlock("entry")
@@ -43,16 +46,28 @@ func (fn *Function) Codegen(ctx *CodegenContext) (*ir.Func, error) {
 
 	// If no explicit return, add default return 0
 	if !blockHasTerminator(ctx.Block) {
-		ctx.Block.NewRet(constant.NewInt(types.I32, 0))
+		switch fnIR.Sig.RetType {
+		case types.I32:
+			ctx.Block.NewRet(constant.NewInt(types.I32, 0))
+			break
+		case types.I64:
+			ctx.Block.NewRet(constant.NewInt(types.I64, 0))
+			break
+		case types.Double:
+			ctx.Block.NewRet(constant.NewFloat(types.Double, 0))
+			break
+		case types.Void: // Is this necessary lol?
+			ctx.Block.NewRet(nil)
+			break
+		}
 	}
-
 	return fnIR, nil
 }
 
 func (v *VarDecl) Codegen(ctx *CodegenContext) (value.Value, error) {
 	entryBlock := ctx.Func.Blocks[0]
 	// Allocate space for variable in entry block
-	alloca := entryBlock.NewAlloca(types.I32) // TODO: adjust type accordingly
+	alloca := entryBlock.NewAlloca(llvmTypeFromPrimitive(v.Var.Type))
 
 	// Save the alloca in the symbol table
 	ctx.Symbols[v.Var.Name] = alloca
@@ -85,18 +100,38 @@ func (id *Identifier) Codegen(ctx *CodegenContext) (value.Value, error) {
 		// TODO: Handle this differently
 		return nil, fmt.Errorf("unknown variable %s", id.Name)
 	}
-	return ctx.Block.NewLoad(types.I32, alloca), nil
+	return ctx.Block.NewLoad(llvmTypeFromPrimitive(id.Type), alloca), nil
 }
 
 func (n *NumberLiteral) Codegen(ctx *CodegenContext) (value.Value, error) {
-	// TODO: Handle double and float and others later
-
-	// Assuming integer literaels for now
-	val, err := strconv.Atoi(n.Value)
-	if err != nil {
-		return nil, err
+	switch n.Type {
+	case PrimitiveN32, PrimitiveZ32:
+		val, err := strconv.ParseInt(n.Value, 10, 32)
+		if err != nil {
+			return nil, err
+		}
+		return constant.NewInt(types.I32, val), nil
+	case PrimitiveN64, PrimitiveZ64:
+		val, err := strconv.ParseInt(n.Value, 10, 64)
+		if err != nil {
+			return nil, err
+		}
+		return constant.NewInt(types.I64, val), nil
+	case PrimitiveR32:
+		val, err := strconv.ParseFloat(n.Value, 32)
+		if err != nil {
+			return nil, err
+		}
+		return constant.NewFloat(types.Float, val), nil
+	case PrimitiveR64:
+		val, err := strconv.ParseFloat(n.Value, 64)
+		if err != nil {
+			return nil, err
+		}
+		return constant.NewFloat(types.Double, val), nil
+	default:
+		panic("Không xác định được kiểu dữ liệu của số")
 	}
-	return constant.NewInt(types.I32, int64(val)), nil
 }
 
 func GenerateLLVMIR(prog *Program) (*ir.Module, error) {
@@ -121,4 +156,19 @@ func blockHasTerminator(block *ir.Block) bool {
 		return false
 	}
 	return true
+}
+
+func llvmTypeFromPrimitive(name string) types.Type {
+	switch name {
+	case PrimitiveN32, PrimitiveZ32:
+		return types.I32
+	case PrimitiveN64, PrimitiveZ64:
+		return types.I64
+	case PrimitiveR32:
+		return types.Float
+	case PrimitiveR64:
+		return types.Double
+	default:
+		panic("Không xác định được kiểu dữ liệu")
+	}
 }

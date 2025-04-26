@@ -67,6 +67,7 @@ func (r *ReturnStmt) Pos() (int, int) { return r.Line, r.Column }
 // Example expressions
 type Identifier struct {
 	Name   string
+	Type   string
 	Line   int
 	Column int
 }
