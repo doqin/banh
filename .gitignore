@@ -13,6 +13,9 @@
 
 banh
 main
+congthuc.toml
+nguon/
+xuat/
 
 # Test binary, built with `go test -c`
 *.test
