@@ -13,10 +13,10 @@ func main() {
 	switch args[1] {
 	case "nuong":
 		nuong()
-		break
 	case "an":
 		an()
-		break
+	case "hap":
+		hap()
 	default:
 		log.Fatal("Không nhận diện được câu lệnh, làm ơn thử lại!")
 	}
