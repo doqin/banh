@@ -24,8 +24,8 @@ func (fn *Function) Codegen(ctx *CodegenContext) (*ir.Func, error) {
 	// For simplicity, assume no parameters and return type i32
 	var fnIR *ir.Func
 	if fn.Name == "chính" {
-		if fn.ReturnType != PrimitiveN32 {
-			return nil, NewLangError(ReturnTypeMismatch, fn.ReturnType, PrimitiveN32).At(fn.Line, fn.Column)
+		if fn.ReturnType != PrimitiveZ32 {
+			return nil, NewLangError(ReturnTypeMismatch, fn.ReturnType, PrimitiveZ32).At(fn.Line, fn.Column)
 		}
 		fnIR = ctx.Module.NewFunc("main", llvmTypeFromPrimitive(fn.ReturnType))
 	} else {
@@ -131,6 +131,37 @@ func (n *NumberLiteral) Codegen(ctx *CodegenContext) (value.Value, error) {
 		return constant.NewFloat(types.Double, val), nil
 	default:
 		panic("Không xác định được kiểu dữ liệu của số")
+	}
+}
+
+func (b *BinaryExpr) Codegen(ctx *CodegenContext) (value.Value, error) {
+	leftVal, err := b.Left.Codegen(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rightVal, err := b.Right.Codegen(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	switch b.Operator {
+	case SymbolPlus:
+		return ctx.Block.NewAdd(leftVal, rightVal), nil
+	case SymbolMinus:
+		return ctx.Block.NewSub(leftVal, rightVal), nil
+	case SymbolAsterisk:
+		return ctx.Block.NewMul(leftVal, rightVal), nil
+	case SymbolSlash:
+		// For now treat unsigned as signed
+		if leftVal.Type().Equal(types.I32) {
+			return ctx.Block.NewSDiv(leftVal, rightVal), nil
+		}
+		if leftVal.Type().Equal(types.Double) || leftVal.Type().Equal(types.Float) {
+			return ctx.Block.NewFAdd(leftVal, rightVal), nil
+		}
+		panic("Gặp sự cố khi thực hiện phép toán")
+	default:
+		panic("Gặp sự cố khi thực hiện phép toán")
 	}
 }
 

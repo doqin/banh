@@ -1,6 +1,8 @@
 package main
 
-import "strings"
+import (
+	"strings"
+)
 
 // Scope represents a symbol table with optional parent scoping
 type Scope struct {
@@ -80,29 +82,37 @@ func (tc *TypeChecker) AnalyzeStatement(stmt Statement, expectedReturnType strin
 		tc.AnalyzeExpression(s.Value)
 		valType := tc.getExprType(s.Value)
 
-		// If value is a NumberLiteral and needs adjustment
-		if numLit, ok := s.Value.(*NumberLiteral); ok {
-			if numLit.Type == PrimitiveR64 && (s.Var.Type == PrimitiveN32 || s.Var.Type == PrimitiveN64 || s.Var.Type == PrimitiveZ32 || s.Var.Type == PrimitiveZ64) {
-				// "Cast" NumberLiteral by modifying its type and value
-				newValue := truncanteFloatString(numLit.Value)
-				numLit.Value = newValue
-				numLit.Type = s.Var.Type
-				valType = numLit.Type
+		if valType != s.Var.Type && isLiteral(s.Value) {
+			if !canLiteralCast(valType, s.Var.Type) {
+				line, col := s.Pos()
+				panic(NewLangError(TypeMismatch, valType, s.Var.Type).At(line, col))
 			}
+			valType = s.Var.Type
 		}
 
-		if !canAssign(valType, s.Var.Type) {
+		if valType != s.Var.Type && !canImplicitCast(valType, s.Var.Type) {
 			line, col := s.Pos()
-			panic(NewLangError(TypeMismatch, valType, expectedReturnType).At(line, col))
+			panic(NewLangError(TypeMismatch, valType, s.Var.Type).At(line, col))
 		}
+		castExpr(s.Value, s.Var.Type)
 		tc.CurrentScope.Declare(s.Var.Name, s.Var)
 	case *ReturnStmt:
 		tc.AnalyzeExpression(s.Value)
 		valType := tc.getExprType(s.Value)
-		if !canAssign(valType, expectedReturnType) {
+
+		if valType != expectedReturnType && isLiteral(s.Value) {
+			if !canLiteralCast(valType, expectedReturnType) {
+				line, col := s.Pos()
+				panic(NewLangError(ReturnTypeMismatch, valType, expectedReturnType).At(line, col))
+			}
+			valType = expectedReturnType
+		}
+
+		if valType != expectedReturnType && !canImplicitCast(valType, expectedReturnType) {
 			line, col := s.Pos()
 			panic(NewLangError(ReturnTypeMismatch, valType, expectedReturnType).At(line, col))
 		}
+		castExpr(s.Value, expectedReturnType)
 	default:
 		panic("Câu lệnh không xác định")
 	}
@@ -121,13 +131,42 @@ func (tc *TypeChecker) AnalyzeExpression(expr Expression) {
 
 	case *NumberLiteral:
 		// Is already R64
+	case *BinaryExpr:
+		tc.AnalyzeExpression(e.Left)
+		tc.AnalyzeExpression(e.Right)
+		leftType := tc.getExprType(e.Left)
+		rightType := tc.getExprType(e.Right)
+
+		if leftType == rightType {
+			e.Type = leftType
+			break
+		}
+
+		if isLiteral(e.Left) && !isLiteral(e.Right) {
+			if !canLiteralCast(leftType, rightType) {
+				panic(NewLangError(TypeMismatch, leftType, rightType).At(e.Line, e.Column))
+			}
+			castExpr(e.Left, rightType)
+			leftType = rightType
+		} else if !isLiteral(e.Left) && isLiteral(e.Right) {
+			if !canLiteralCast(rightType, leftType) {
+				panic(NewLangError(TypeMismatch, rightType, leftType).At(e.Line, e.Column))
+			}
+			castExpr(e.Right, leftType)
+			rightType = leftType
+		}
+
+		// If both are same type, result is that type
+		if leftType != rightType && !canImplicitCast(rightType, leftType) {
+			panic(NewLangError(TypeMismatch, rightType, leftType).At(e.Line, e.Column))
+		}
+		e.Type = leftType
 	default:
 		panic("Biểu thức không xác định")
 	}
 }
 
 // Helper
-
 func (tc *TypeChecker) getExprType(expr Expression) string {
 	switch e := expr.(type) {
 	case *Identifier:
@@ -139,25 +178,110 @@ func (tc *TypeChecker) getExprType(expr Expression) string {
 		return "Unknown" // Store resolved type later
 	case *NumberLiteral:
 		return e.Type
+	case *BinaryExpr:
+		return e.Type
 	default:
 		return "Unknown"
 	}
 }
 
-func canAssign(fromType, toType string) bool {
+func isLiteral(expr Expression) bool {
+	switch e := expr.(type) {
+	case *NumberLiteral:
+		return true
+	case *BinaryExpr:
+		return isLiteral(e.Left) && isLiteral(e.Right)
+	default:
+		return false
+	}
+}
+
+func canLiteralCast(fromType, toType string) bool {
+	switch fromType {
+	case PrimitiveR64:
+		switch toType {
+		case PrimitiveR64, PrimitiveR32:
+			return true
+		default:
+			return false
+		}
+	case PrimitiveZ64:
+		switch toType {
+		case PrimitiveZ64, PrimitiveZ32, PrimitiveN64, PrimitiveN32:
+			return true
+		default:
+			return false
+		}
+	default:
+		return false
+	}
+}
+
+func canImplicitCast(fromType, toType string) bool {
 	if fromType == toType {
 		return true
 	}
 
-	// Allow implicit casts from R64 to int types (N32, Z32, etc.)
-	if fromType == PrimitiveR64 {
+	switch fromType {
+	case PrimitiveR64:
 		switch toType {
-		case PrimitiveN32, PrimitiveN64, PrimitiveZ32, PrimitiveZ64:
+		case PrimitiveR64: // Safe
 			return true
+		default:
+			return false
 		}
+	case PrimitiveR32:
+		switch toType {
+		case PrimitiveR32, PrimitiveR64:
+			return true
+		default:
+			return false
+		}
+	case PrimitiveZ64:
+		switch toType {
+		case PrimitiveZ64:
+			return true
+		default:
+			return false
+		}
+	case PrimitiveZ32:
+		switch toType {
+		case PrimitiveZ32, PrimitiveZ64:
+			return true
+		default:
+			return false
+		}
+	case PrimitiveN64:
+		switch toType {
+		case PrimitiveN64:
+			return true
+		default:
+			return false
+		}
+	case PrimitiveN32:
+		switch toType {
+		case PrimitiveN32, PrimitiveN64:
+			return true
+		default:
+			return false
+		}
+	default:
+		return false
 	}
-	// Add more implicit cast rules
-	return false
+}
+
+func castExpr(expr Expression, toType string) {
+	switch e := expr.(type) {
+	case *Identifier:
+		e.Type = toType
+	case *NumberLiteral:
+		e.Type = toType
+	case *BinaryExpr:
+		castExpr(e.Left, toType)
+		castExpr(e.Right, toType)
+		e.Type = toType
+	default:
+	}
 }
 
 // Turns floating point numbers like "1.0" to "1"
@@ -166,4 +290,15 @@ func truncanteFloatString(s string) string {
 		return s[:dot]
 	}
 	return s
+}
+
+func exprPrecedence(expr Expression) int {
+	switch expr.(type) {
+	case *BinaryExpr:
+		return 10
+	case *Identifier, *NumberLiteral:
+		return 30
+	default:
+		return -1
+	}
 }

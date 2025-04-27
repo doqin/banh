@@ -42,7 +42,7 @@ func (l *Lexer) NextToken() Token {
 	}
 
 	// Handles numbers
-	if unicode.IsDigit(ch) {
+	if unicode.IsDigit(ch) || (ch == '-' && unicode.IsDigit(l.peek())) {
 		return Token{Type: TokenNumber, Lexeme: l.readNumber(), Line: l.line, Column: col}
 	}
 
@@ -205,7 +205,15 @@ func (l *Lexer) readIdentifier() string {
 
 func (l *Lexer) readNumber() string {
 	start := l.pos
-	for l.pos < len(l.input) && unicode.IsDigit(l.input[l.pos]) {
+	isFloat := false
+	if l.input[l.pos] == '-' {
+		l.pos++
+		l.col++
+	}
+	for l.pos < len(l.input) && (unicode.IsDigit(l.input[l.pos]) || (l.input[l.pos] == '.' && !isFloat)) {
+		if l.input[l.pos] == '.' {
+			isFloat = true
+		}
 		l.pos++
 		l.col++
 	}

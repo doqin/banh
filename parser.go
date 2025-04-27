@@ -1,5 +1,14 @@
 package main
 
+import "strings"
+
+var precedences = map[string]int{
+	SymbolPlus:     10,
+	SymbolMinus:    10,
+	SymbolAsterisk: 20,
+	SymbolSlash:    20,
+}
+
 type Parser struct {
 	tokens  []Token
 	pos     int
@@ -119,7 +128,7 @@ func (p *Parser) parseFunction() (*Function, error) {
 	}
 	p.nextToken() // Consumes ')'
 
-	// TODO: Parse return type (optional)
+	// Parse return type (optional)
 	// ...
 	returnType := "rỗng"
 	if p.current.Type == TokenOperator && p.current.Lexeme == SymbolArrow {
@@ -218,11 +227,10 @@ func (p *Parser) parseVarDecl() (Statement, error) {
 	// For example: ":= expression"
 	if p.current.Type == TokenOperator && p.current.Lexeme == SymbolAssign {
 		p.nextToken()
-		expr, err := p.parseExpression()
+		expr, err := p.parseExpression(0)
 		if err != nil {
 			return nil, err
 		}
-		// TODO: Handle type mismatch
 		return &VarDecl{
 			Var:    &Variable{Name: varName, Type: varType, Line: line, Column: col},
 			Value:  expr,
@@ -243,7 +251,7 @@ func (p *Parser) parseVarDecl() (Statement, error) {
 func (p *Parser) parseReturnStmt() (Statement, error) {
 	// consume 'trả về'
 	p.nextToken()
-	expr, err := p.parseExpression()
+	expr, err := p.parseExpression(0)
 	if err != nil {
 		return nil, err
 	}
@@ -251,20 +259,81 @@ func (p *Parser) parseReturnStmt() (Statement, error) {
 	return &ReturnStmt{Value: expr, Line: line, Column: column}, nil
 }
 
-// Basic implementaion
 // TODO: Make more advanced expression parser
-func (p *Parser) parseExpression() (Expression, error) {
+func (p *Parser) parseExpression(minPrec int) (Expression, error) {
+	// Parse the left-hand side (primary expression)
+	left, err := p.parsePrimary()
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse binary operators according to precedence
+	for {
+		prec := p.currentPrecedence()
+		if prec < minPrec {
+			break
+		}
+
+		op := p.current.Lexeme
+		line, col := p.current.Line, p.current.Column
+		p.nextToken() // consume operator
+
+		// Parse right-hand side expression with higher precedence for right-associativity
+		right, err := p.parseExpression(prec + 1)
+		if err != nil {
+			return nil, err
+		}
+
+		left = &BinaryExpr{
+			Left:     left,
+			Operator: op,
+			Right:    right,
+			Type:     "Unknown",
+			Line:     line,
+			Column:   col,
+		}
+	}
+
+	return left, nil
+}
+
+func (p *Parser) parsePrimary() (Expression, error) {
 	switch p.current.Type {
 	case TokenIdent:
 		id := &Identifier{Name: p.current.Lexeme, Type: "Unknown", Line: p.current.Line, Column: p.current.Column}
 		p.nextToken()
 		return id, nil
 	case TokenNumber:
-		// TODO: get number type for real (for now its R64)
-		num := &NumberLiteral{Value: p.current.Lexeme, Type: PrimitiveR64, Line: p.current.Line, Column: p.current.Column}
+		var num *NumberLiteral
+		if strings.Contains(p.current.Lexeme, ".") == true {
+			num = &NumberLiteral{Value: p.current.Lexeme, Type: PrimitiveR64, Line: p.current.Line, Column: p.current.Column}
+		} else {
+			num = &NumberLiteral{Value: p.current.Lexeme, Type: PrimitiveZ64, Line: p.current.Line, Column: p.current.Column}
+		}
 		p.nextToken()
 		return num, nil
+	case TokenLParen:
+		p.nextToken() // Consumes '('
+		expr, err := p.parseExpression(0)
+		if err != nil {
+			return nil, err
+		}
+		if p.current.Type != TokenRParen {
+			return nil, NewLangError(WrongToken, ")", p.current.Lexeme).At(p.current.Line, p.current.Column)
+		}
+		p.nextToken() // Consumes ')'
+		return expr, nil
 	default:
 		return nil, NewLangError(UnexpectedToken, p.current.Lexeme).At(p.current.Line, p.current.Column)
 	}
+}
+
+// Helper function
+func (p *Parser) currentPrecedence() int {
+	if p.current.Type == TokenOperator {
+		if prec, ok := precedences[p.current.Lexeme]; ok {
+			return prec
+		}
+	}
+	return -1
 }

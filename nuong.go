@@ -61,6 +61,11 @@ func nuong() {
 		log.Fatal("Không thể parse chương trình:\n", err)
 	}
 
+	if slices.Contains(args, "--in-parse") {
+		printProgram(program)
+		fmt.Println()
+	}
+
 	checker := &TypeChecker{}
 	checker.AnalyzeProgram(program)
 
@@ -146,9 +151,15 @@ func printStatement(s Statement, indent string) {
 func printExpression(e Expression, indent string) {
 	switch expr := e.(type) {
 	case *Identifier:
-		fmt.Printf("Identifier(%s)", expr.Name)
+		fmt.Printf("Identifier(%s: %s)", expr.Name, expr.Type)
 	case *NumberLiteral:
 		fmt.Printf("NumberLiteral(%s: %s)", expr.Value, expr.Type)
+	case *BinaryExpr:
+		fmt.Print("BinaryExpr(")
+		printExpression(expr.Left, indent)
+		fmt.Print(expr.Operator)
+		printExpression(expr.Right, indent)
+		fmt.Print(")")
 	default:
 		fmt.Printf("Unknown Expression")
 	}

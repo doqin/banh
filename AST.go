@@ -85,4 +85,24 @@ type NumberLiteral struct {
 func (n *NumberLiteral) expressionNode() {}
 func (n *NumberLiteral) Pos() (int, int) { return n.Line, n.Column }
 
-// Add more node types like BinaryExpr or CallExpr, etc.
+type BinaryExpr struct {
+	Left     Expression
+	Operator string
+	Right    Expression
+	Type     string
+	Line     int
+	Column   int
+}
+
+func (b *BinaryExpr) expressionNode() {}
+func (b *BinaryExpr) Pos() (int, int) { return b.Line, b.Column }
+
+type CallExpr struct {
+	Name   string
+	Type   string
+	Line   int
+	Column int
+}
+
+func (c *CallExpr) expressionNode() {}
+func (c *CallExpr) Pos() (int, int) { return c.Line, c.Column }
