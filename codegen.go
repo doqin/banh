@@ -19,23 +19,34 @@ type CodegenContext struct {
 
 // Function gen
 func (fn *Function) Codegen(ctx *CodegenContext) (*ir.Func, error) {
-	// TODO: Add proper parameter and return type support
-
-	// For simplicity, assume no parameters and return type i32
+	// Handle params
+	params := make([]*ir.Param, len(fn.Parameters))
+	for i, param := range fn.Parameters {
+		paramType := llvmTypeFromPrimitive(param.Type)
+		params[i] = ir.NewParam(param.Name, paramType)
+	}
 	var fnIR *ir.Func
 	if fn.Name == "chính" {
 		if fn.ReturnType != PrimitiveZ32 {
 			return nil, NewLangError(ReturnTypeMismatch, fn.ReturnType, PrimitiveZ32).At(fn.Line, fn.Column)
 		}
-		fnIR = ctx.Module.NewFunc("main", llvmTypeFromPrimitive(fn.ReturnType))
+		fnIR = ctx.Module.NewFunc("main", llvmTypeFromPrimitive(fn.ReturnType), params...)
 	} else {
-		fnIR = ctx.Module.NewFunc(fn.Name, llvmTypeFromPrimitive(fn.ReturnType))
+		fnIR = ctx.Module.NewFunc(fn.Name, llvmTypeFromPrimitive(fn.ReturnType), params...)
 	}
 
 	entry := fnIR.NewBlock("entry")
 	ctx.Func = fnIR
 	ctx.Block = entry
 	ctx.Symbols = make(map[string]value.Value) // fresh scope
+
+	// Map function parameters to allocas and store initial value
+	for i, param := range fn.Parameters {
+		llvmParam := fnIR.Params[i]
+		alloca := ctx.Block.NewAlloca(llvmParam.Type())
+		ctx.Symbols[param.Name] = alloca
+		ctx.Block.NewStore(llvmParam, alloca)
+	}
 
 	for _, stmt := range fn.Body {
 		_, err := stmt.Codegen(ctx)
@@ -165,6 +176,30 @@ func (b *BinaryExpr) Codegen(ctx *CodegenContext) (value.Value, error) {
 	}
 }
 
+// TODO: Implement it
+func (c *CallExpr) Codegen(ctx *CodegenContext) (value.Value, error) {
+	callee := findFunction(ctx.Module, c.Name)
+	if callee == nil {
+		return nil, NewLangError(InvalidFunctionCall, c.Name)
+	}
+
+	// Check that the number of arguments matches the function's signature
+	if len(c.Arguments) != len(callee.Params) {
+		line, col := c.Pos()
+		return nil, NewLangError(ArgumentCountMismatch, len(c.Arguments), len(callee.Params), callee.Name).At(line, col)
+	}
+
+	llvmArgs := make([]value.Value, len(c.Arguments))
+	for i, arg := range c.Arguments {
+		argVal, err := arg.Codegen(ctx)
+		if err != nil {
+			return nil, err
+		}
+		llvmArgs[i] = argVal
+	}
+	return ctx.Block.NewCall(callee, llvmArgs...), nil
+}
+
 func GenerateLLVMIR(prog *Program) (*ir.Module, error) {
 	ctx := &CodegenContext{
 		Module:  ir.NewModule(),
@@ -202,4 +237,13 @@ func llvmTypeFromPrimitive(name string) types.Type {
 	default:
 		panic("Không xác định được kiểu dữ liệu")
 	}
+}
+
+func findFunction(module *ir.Module, funcName string) *ir.Func {
+	for _, fn := range module.Funcs {
+		if fn.Name() == funcName {
+			return fn
+		}
+	}
+	return nil
 }

@@ -131,6 +131,7 @@ func printFunction(f *Function) {
 	for _, stmt := range f.Body {
 		printStatement(stmt, "      ")
 	}
+	fmt.Println("")
 }
 
 func printStatement(s Statement, indent string) {

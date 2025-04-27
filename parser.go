@@ -128,17 +128,15 @@ func (p *Parser) parseFunction() (*Function, error) {
 	}
 	p.nextToken() // Consumes ')'
 
-	// Parse return type (optional)
-	// ...
-	returnType := "rỗng"
-	if p.current.Type == TokenOperator && p.current.Lexeme == SymbolArrow {
-		p.nextToken() // Consumes '->'
-		if p.current.Type != TokenIdent && p.current.Type != TokenPrimitive {
-			return nil, NewLangError(ExpectToken, "kiểu trả về").At(p.current.Line, p.current.Column)
-		}
-		returnType = p.current.Lexeme
-		p.nextToken() // Consumes the type
+	if p.current.Type != TokenOperator || p.current.Lexeme != SymbolArrow {
+		return nil, NewLangError(WrongToken, "->", p.current.Lexeme).At(p.current.Line, p.current.Column)
 	}
+	p.nextToken() // Consumes '->'
+	if p.current.Type != TokenIdent && p.current.Type != TokenPrimitive {
+		return nil, NewLangError(ExpectToken, "kiểu trả về").At(p.current.Line, p.current.Column)
+	}
+	returnType := p.current.Lexeme
+	p.nextToken() // Consumes the type
 
 	// Forces you to create a new line
 	if p.current.Type != TokenNewLine {
@@ -200,6 +198,7 @@ func (p *Parser) parseStatement() (Statement, error) {
 
 // TODO: Add multiple variable declaration in one line (its one per line for simplicity for now...)
 func (p *Parser) parseVarDecl() (Statement, error) {
+	line, col := p.current.Line, p.current.Column
 	// Consume 'biến'
 	p.nextToken()
 
@@ -208,7 +207,6 @@ func (p *Parser) parseVarDecl() (Statement, error) {
 		return nil, NewLangError(ExpectToken, "tên biến").At(p.current.Line, p.current.Column)
 	}
 	varName := p.current.Lexeme
-	line, col := p.current.Line, p.current.Column
 	p.nextToken()
 
 	// Type declaration
@@ -249,14 +247,43 @@ func (p *Parser) parseVarDecl() (Statement, error) {
 }
 
 func (p *Parser) parseReturnStmt() (Statement, error) {
+	line, column := p.current.Line, p.current.Column
 	// consume 'trả về'
 	p.nextToken()
 	expr, err := p.parseExpression(0)
 	if err != nil {
 		return nil, err
 	}
-	line, column := expr.Pos()
 	return &ReturnStmt{Value: expr, Line: line, Column: column}, nil
+}
+
+func (p *Parser) parseCallExpr() (Expression, error) {
+	line, column := p.current.Line, p.current.Column
+	fnName := p.current.Lexeme
+	p.nextToken() // Consumes name
+	if p.current.Type != TokenLParen {
+		return nil, NewLangError(WrongToken, "(", p.current.Lexeme).At(p.current.Line, p.current.Column)
+	}
+	p.nextToken() // Consumes '('
+	var arguments []Expression
+	if p.current.Type != TokenRParen {
+		for {
+			expr, err := p.parseExpression(0)
+			if err != nil {
+				return nil, err
+			}
+			arguments = append(arguments, expr)
+			if p.current.Type == TokenRParen {
+				break
+			}
+			if p.current.Type != TokenComma {
+				return nil, NewLangError(WrongToken, "(", p.current.Lexeme).At(p.current.Line, p.current.Column)
+			}
+			p.nextToken()
+		}
+	}
+	p.nextToken() // Consumes ')'
+	return &CallExpr{Name: fnName, Arguments: arguments, ReturnType: "Unknown", Line: line, Column: column}, nil
 }
 
 // TODO: Make more advanced expression parser
@@ -285,12 +312,12 @@ func (p *Parser) parseExpression(minPrec int) (Expression, error) {
 		}
 
 		left = &BinaryExpr{
-			Left:     left,
-			Operator: op,
-			Right:    right,
-			Type:     "Unknown",
-			Line:     line,
-			Column:   col,
+			Left:       left,
+			Operator:   op,
+			Right:      right,
+			ReturnType: "Unknown",
+			Line:       line,
+			Column:     col,
 		}
 	}
 
@@ -300,9 +327,17 @@ func (p *Parser) parseExpression(minPrec int) (Expression, error) {
 func (p *Parser) parsePrimary() (Expression, error) {
 	switch p.current.Type {
 	case TokenIdent:
-		id := &Identifier{Name: p.current.Lexeme, Type: "Unknown", Line: p.current.Line, Column: p.current.Column}
-		p.nextToken()
-		return id, nil
+		if p.peekToken().Type == TokenLParen {
+			call, err := p.parseCallExpr()
+			if err != nil {
+				return nil, err
+			}
+			return call, nil
+		} else {
+			id := &Identifier{Name: p.current.Lexeme, Type: "Unknown", Line: p.current.Line, Column: p.current.Column}
+			p.nextToken()
+			return id, nil
+		}
 	case TokenNumber:
 		var num *NumberLiteral
 		if strings.Contains(p.current.Lexeme, ".") == true {

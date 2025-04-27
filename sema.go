@@ -6,36 +6,53 @@ import (
 
 // Scope represents a symbol table with optional parent scoping
 type Scope struct {
-	Parent  *Scope
-	Symbols map[string]*Variable
+	Parent    *Scope
+	Symbols   map[string]*Variable
+	Functions map[string]*Function
 }
 
 // NewScope creates a new scope, optionally with a parent
 func NewScope(parent *Scope) *Scope {
 	return &Scope{
-		Parent:  parent,
-		Symbols: make(map[string]*Variable),
+		Parent:    parent,
+		Symbols:   make(map[string]*Variable),
+		Functions: make(map[string]*Function),
 	}
 }
 
 // Declare adds a new variable to the current scope
 // It panics if the name already exists in the current scope.
-func (s *Scope) Declare(name string, v *Variable) {
-	if _, exists := s.Symbols[name]; exists {
-		panic(NewLangError(RedeclarationVar, name).At(v.Line, v.Column))
+func (s *Scope) Declare(name string, v any) {
+	switch typ := v.(type) {
+	case *Variable:
+		if _, exists := s.Symbols[name]; exists {
+			panic(NewLangError(RedeclarationVar, name).At(typ.Line, typ.Column))
+		}
+		s.Symbols[name] = typ
+	case *Function:
+		if _, exists := s.Functions[name]; exists {
+			panic(NewLangError(RedeclarationFunction, name).At(typ.Line, typ.Column))
+		}
+		s.Functions[name] = typ
+	default:
+		panic("Câu lệnh khai báo không xác định")
 	}
-	s.Symbols[name] = v
 }
 
 // Resolve looks for a variable in the current scope chain.
-func (s *Scope) Resolve(name string) *Variable {
-	if v, ok := s.Symbols[name]; ok {
-		return v
+func (s *Scope) Resolve(name string) (any, bool) {
+	// Check for function first
+	if f, ok := s.Functions[name]; ok {
+		return f, true
 	}
+	if v, ok := s.Symbols[name]; ok {
+		return v, true
+	}
+	// Otherwise check for parent's scope
 	if s.Parent != nil {
 		return s.Parent.Resolve(name)
 	}
-	return nil // Not found
+	return nil, false // Not found
 }
 
 type TypeChecker struct {
@@ -46,13 +63,15 @@ type TypeChecker struct {
 // Entry point
 func (tc *TypeChecker) AnalyzeProgram(p *Program) {
 	tc.GlobalScope = NewScope(nil)
+
 	// First, declare all functions (for forward reference)
 	for _, fn := range p.Functions {
-		tc.GlobalScope.Declare(fn.Name, &Variable{
-			Name:   fn.Name,
-			Type:   "function",
-			Line:   fn.Line,
-			Column: fn.Column,
+		tc.GlobalScope.Declare(fn.Name, &Function{
+			Name:       fn.Name,
+			Parameters: fn.Parameters,
+			ReturnType: fn.ReturnType,
+			Line:       fn.Line,
+			Column:     fn.Column,
 		})
 	}
 
@@ -121,14 +140,23 @@ func (tc *TypeChecker) AnalyzeStatement(stmt Statement, expectedReturnType strin
 func (tc *TypeChecker) AnalyzeExpression(expr Expression) {
 	switch e := expr.(type) {
 	case *Identifier:
-		v := tc.CurrentScope.Resolve(e.Name)
-		if v == nil {
+		v, found := tc.CurrentScope.Resolve(e.Name)
+		if !found {
 			line, col := e.Pos()
 			panic(NewLangError(UndeclaredIdentifier, e.Name).At(line, col))
 		}
-		e.Type = v.Type
-		// Ideally annotate the Identifier with type info
 
+		switch typ := v.(type) {
+		case *Variable:
+			e.Type = typ.Type
+		case *Function:
+			//FIXME: Handle function name clashing with variable name
+			line, col := e.Pos()
+			panic(NewLangError(InvalidIdentifierUsage, e.Name).At(line, col))
+		default:
+			line, col := e.Pos()
+			panic(NewLangError(UnknownIdentifierType).At(line, col))
+		}
 	case *NumberLiteral:
 		// Is already R64
 	case *BinaryExpr:
@@ -138,7 +166,7 @@ func (tc *TypeChecker) AnalyzeExpression(expr Expression) {
 		rightType := tc.getExprType(e.Right)
 
 		if leftType == rightType {
-			e.Type = leftType
+			e.ReturnType = leftType
 			break
 		}
 
@@ -160,9 +188,44 @@ func (tc *TypeChecker) AnalyzeExpression(expr Expression) {
 		if leftType != rightType && !canImplicitCast(rightType, leftType) {
 			panic(NewLangError(TypeMismatch, rightType, leftType).At(e.Line, e.Column))
 		}
-		e.Type = leftType
+		e.ReturnType = leftType
+	case *CallExpr:
+		// Resolve function symbol
+		f, found := tc.GlobalScope.Resolve(e.Name)
+		if !found {
+			line, col := e.Pos()
+			panic(NewLangError(InvalidFunctionCall, e.Name).At(line, col))
+		}
+
+		// Ensure it's a function (not a variable)
+		fn, ok := f.(*Function)
+
+		if !ok {
+			line, col := e.Pos()
+			panic(NewLangError(InvalidFunctionCall, e.Name).At(line, col))
+		}
+
+		// Check argument count
+		if len(e.Arguments) != len(fn.Parameters) {
+			line, col := e.Pos()
+			panic(NewLangError(ArgumentCountMismatch, len(e.Arguments), len(fn.Parameters), e.Name).At(line, col))
+		}
+
+		for i, arg := range e.Arguments {
+			tc.AnalyzeExpression(arg)
+			argType := tc.getExprType(arg)
+			paramType := fn.Parameters[i].Type
+
+			if argType != paramType {
+				line, col := e.Pos()
+				panic(NewLangError(ArgumentTypeMismatch, argType, paramType).At(line, col))
+			}
+		}
+
+		e.ReturnType = fn.ReturnType
 	default:
-		panic("Biểu thức không xác định")
+		line, col := e.Pos()
+		panic(NewLangError(UnknownExpression).At(line, col))
 	}
 }
 
@@ -170,16 +233,27 @@ func (tc *TypeChecker) AnalyzeExpression(expr Expression) {
 func (tc *TypeChecker) getExprType(expr Expression) string {
 	switch e := expr.(type) {
 	case *Identifier:
-		v := tc.CurrentScope.Resolve(e.Name)
-		if v != nil {
-			return v.Type
+		v, found := tc.CurrentScope.Resolve(e.Name)
+		if !found {
+			line, col := e.Pos()
+			panic(NewLangError(UndeclaredIdentifier, e.Name).At(line, col))
 		}
+
+		switch id := v.(type) {
+		case *Variable:
+			return id.Type
+		default:
+			line, col := e.Pos()
+			panic(NewLangError(UndeclaredIdentifier, e.Name).At(line, col))
+		}
+
 		// Fallthrough if not found
-		return "Unknown" // Store resolved type later
 	case *NumberLiteral:
 		return e.Type
 	case *BinaryExpr:
-		return e.Type
+		return e.ReturnType
+	case *CallExpr:
+		return e.ReturnType
 	default:
 		return "Unknown"
 	}
@@ -217,6 +291,7 @@ func canLiteralCast(fromType, toType string) bool {
 	}
 }
 
+// Secretly cast to widen a type if possible
 func canImplicitCast(fromType, toType string) bool {
 	if fromType == toType {
 		return true
@@ -279,7 +354,9 @@ func castExpr(expr Expression, toType string) {
 	case *BinaryExpr:
 		castExpr(e.Left, toType)
 		castExpr(e.Right, toType)
-		e.Type = toType
+		e.ReturnType = toType
+	case *CallExpr:
+		e.ReturnType = toType
 	default:
 	}
 }
@@ -290,15 +367,4 @@ func truncanteFloatString(s string) string {
 		return s[:dot]
 	}
 	return s
-}
-
-func exprPrecedence(expr Expression) int {
-	switch expr.(type) {
-	case *BinaryExpr:
-		return 10
-	case *Identifier, *NumberLiteral:
-		return 30
-	default:
-		return -1
-	}
 }

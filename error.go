@@ -13,19 +13,31 @@ const (
 	UndeclaredIdentifier
 	MissingReturn
 	InvalidFunctionCall
+	ArgumentCountMismatch
+	ArgumentTypeMismatch
 	RedeclarationVar
+	RedeclarationFunction
+	UnknownExpression
+	InvalidIdentifierUsage
+	UnknownIdentifierType
 )
 
 var errorMessagesVi = map[ErrorID]string{
-	ExpectToken:          "Mong đợi %v ở vị trí này",
-	UnexpectedToken:      "Không mong đợi ký hiệu '%v' ở vị trí này.",
-	WrongToken:           "Mong đợi ký hiệu '%v' thay vì '%v' ở vị trí này.",
-	TypeMismatch:         "Không thể gán kiểu '%v' cho '%v'.",
-	ReturnTypeMismatch:   "Không thể trả về giá trị kiểu '%v', mong đợi kiểu '%v'",
-	UndeclaredIdentifier: "Không tìm thấy định danh '%v'.",
-	MissingReturn:        "Thiếu câu lệnh trả về trong hàm có kiểu trả về '%v'.",
-	InvalidFunctionCall:  "Hàm '%v' không tồn tại hoặc sai kiểu tham số.",
-	RedeclarationVar:     "Lỗi khai báo lại biến '%v'",
+	ExpectToken:            "Mong đợi %v ở vị trí này.",
+	UnexpectedToken:        "Không mong đợi ký hiệu '%v' ở vị trí này.",
+	WrongToken:             "Mong đợi ký hiệu '%v' thay vì '%v' ở vị trí này.",
+	TypeMismatch:           "Không thể gán kiểu '%v' cho '%v'.",
+	ReturnTypeMismatch:     "Không thể trả về giá trị kiểu '%v', mong đợi kiểu '%v'.",
+	UndeclaredIdentifier:   "Không tìm thấy định danh '%v'.",
+	MissingReturn:          "Thiếu câu lệnh trả về trong hàm có kiểu trả về '%v'.",
+	InvalidFunctionCall:    "Hàm '%v' không tồn tại",
+	ArgumentCountMismatch:  "Số lượng đối số (%v) của lời gọi hàm không khớp với số lượng tham số (%v) của hàm '%v'.",
+	ArgumentTypeMismatch:   "Đối số '%v' khác kiểu với tham số '%v'.",
+	RedeclarationVar:       "Lỗi khai báo lại biến '%v'.",
+	RedeclarationFunction:  "Lỗi khai báo lại hàm '%v'.",
+	UnknownExpression:      "Biểu thức không xác định.",
+	InvalidIdentifierUsage: "Không thể đánh giá được cách sử dụng ký hiệu '%v'.",
+	UnknownIdentifierType:  "Ký hiệu không xác định.",
 }
 
 type LangError struct {

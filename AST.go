@@ -86,22 +86,23 @@ func (n *NumberLiteral) expressionNode() {}
 func (n *NumberLiteral) Pos() (int, int) { return n.Line, n.Column }
 
 type BinaryExpr struct {
-	Left     Expression
-	Operator string
-	Right    Expression
-	Type     string
-	Line     int
-	Column   int
+	Left       Expression
+	Operator   string
+	Right      Expression
+	ReturnType string
+	Line       int
+	Column     int
 }
 
 func (b *BinaryExpr) expressionNode() {}
 func (b *BinaryExpr) Pos() (int, int) { return b.Line, b.Column }
 
 type CallExpr struct {
-	Name   string
-	Type   string
-	Line   int
-	Column int
+	Name       string
+	Arguments  []Expression
+	ReturnType string
+	Line       int
+	Column     int
 }
 
 func (c *CallExpr) expressionNode() {}
