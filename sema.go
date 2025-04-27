@@ -151,6 +151,7 @@ func (tc *TypeChecker) AnalyzeExpression(expr Expression) {
 			e.Type = typ.Type
 		case *Function:
 			//FIXME: Handle function name clashing with variable name
+			// Rather important
 			line, col := e.Pos()
 			panic(NewLangError(InvalidIdentifierUsage, e.Name).At(line, col))
 		default:
