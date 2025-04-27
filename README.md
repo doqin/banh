@@ -19,16 +19,16 @@ hàm cộng(a E Z32, b E Z32) -> Z32
 kết thúc
 ```
 
-Hiện trạng: Hoạt động tàm tạm, cần phải cài đặt thêm cách giải quyết kiểu dữ liệu các kiểu
-
 ## Tính năng
   
 - [x] Tạo biến
   
 - [x] Trả giá trị
   
-- [ ] Sử dụng hàm tạo ra
-  
+- [x] Sử dụng hàm tạo ra
+
+- [ ] Nếu/Không thì
+
 - [ ] In giá trị ra
   
 - [ ] V.V...
