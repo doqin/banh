@@ -77,6 +77,14 @@ func (fn *Function) Codegen(ctx *CodegenContext) (*ir.Func, error) {
 	return fnIR, nil
 }
 
+func (r *RegExpr) Codegen(ctx *CodegenContext) (value.Value, error) {
+	_, err := r.Expr.Codegen(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return nil, nil
+}
+
 func (v *VarDecl) Codegen(ctx *CodegenContext) (value.Value, error) {
 	entryBlock := ctx.Func.Blocks[0]
 	// Allocate space for variable in entry block
@@ -217,10 +225,22 @@ func (b *BinaryExpr) Codegen(ctx *CodegenContext) (value.Value, error) {
 
 	switch b.Operator {
 	case SymbolPlus:
+		if (leftVal.Type().Equal(types.Double) || leftVal.Type().Equal(types.Float)) &&
+			(rightVal.Type().Equal(types.Double) || rightVal.Type().Equal(types.Float)) {
+			return ctx.Block.NewFAdd(leftVal, rightVal), nil
+		}
 		return ctx.Block.NewAdd(leftVal, rightVal), nil
 	case SymbolMinus:
+		if (leftVal.Type().Equal(types.Double) || leftVal.Type().Equal(types.Float)) &&
+			(rightVal.Type().Equal(types.Double) || rightVal.Type().Equal(types.Float)) {
+			return ctx.Block.NewFSub(leftVal, rightVal), nil
+		}
 		return ctx.Block.NewSub(leftVal, rightVal), nil
 	case SymbolAsterisk:
+		if (leftVal.Type().Equal(types.Double) || leftVal.Type().Equal(types.Float)) &&
+			(rightVal.Type().Equal(types.Double) || rightVal.Type().Equal(types.Float)) {
+			return ctx.Block.NewFMul(leftVal, rightVal), nil
+		}
 		return ctx.Block.NewMul(leftVal, rightVal), nil
 	case SymbolSlash:
 		// For now treat unsigned as signed
@@ -283,6 +303,36 @@ func (b *BinaryExpr) Codegen(ctx *CodegenContext) (value.Value, error) {
 }
 
 func (c *CallExpr) Codegen(ctx *CodegenContext) (value.Value, error) {
+	if c.Name == "in" {
+		if len(c.Arguments) != 1 {
+			return nil, fmt.Errorf("in() cần ít nhất một đối số")
+		}
+		argVal, err := c.Arguments[0].Codegen(ctx)
+		if err != nil {
+			return nil, err
+		}
+		printf := ctx.GetOrDeclarePrintf()
+
+		var fmtStr string
+		switch argVal.Type().String() {
+		case "i32", "i64":
+			fmtStr = "%d"
+		case "float", "double":
+			fmtStr = "%f"
+		case "i8*": // string pointer
+			fmtStr = "%s"
+		default:
+			return nil, fmt.Errorf("unsupported type for in(): %s", argVal.Type().String())
+		}
+		globalStr := ctx.GetOrCreateGlobalString(fmt.Sprintf("fmtstr_print_%s", fmtStr), fmtStr+"\n\x00")
+
+		zero := constant.NewInt(types.I64, 0)
+		fmtPtr := ctx.Block.NewGetElementPtr(globalStr, zero, zero) // I think?
+
+		return ctx.Block.NewCall(printf, fmtPtr, argVal), nil
+	}
+
+	// Normal function calls
 	callee := findFunction(ctx.Module, c.Name)
 	if callee == nil {
 		return nil, NewLangError(InvalidFunctionCall, c.Name)
@@ -305,6 +355,71 @@ func (c *CallExpr) Codegen(ctx *CodegenContext) (value.Value, error) {
 	return ctx.Block.NewCall(callee, llvmArgs...), nil
 }
 
+func (e *ExplicitCast) Codegen(ctx *CodegenContext) (value.Value, error) {
+	val, err := e.Argument.Codegen(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	targetType := llvmTypeFromPrimitive(e.Type)
+
+	// Integer to Integer
+	if srcInt, ok1 := val.Type().(*types.IntType); ok1 {
+		if dstInt, ok2 := targetType.(*types.IntType); ok2 {
+			if srcInt.BitSize < dstInt.BitSize {
+				// Extend
+				if e.Type == PrimitiveZ32 || e.Type == PrimitiveZ64 {
+					return ctx.Block.NewZExt(val, targetType), nil
+				} else {
+					return ctx.Block.NewSExt(val, targetType), nil
+				}
+			} else if srcInt.BitSize > dstInt.BitSize {
+				// Truncate
+				return ctx.Block.NewTrunc(val, targetType), nil
+			} else {
+				// Same size
+				return val, nil
+			}
+		}
+	}
+
+	// Integer to Float
+	if _, ok1 := val.Type().(*types.IntType); ok1 {
+		if _, ok2 := targetType.(*types.FloatType); ok2 {
+			if e.Type == PrimitiveR32 || e.Type == PrimitiveR64 {
+				// Signed int to float
+				return ctx.Block.NewSIToFP(val, targetType), nil
+			}
+		}
+	}
+
+	// Float to Integer
+	if _, ok1 := val.Type().(*types.FloatType); ok1 {
+		if _, ok2 := targetType.(*types.IntType); ok2 {
+			// Float to signed int
+			return ctx.Block.NewFPToSI(val, targetType), nil
+		}
+	}
+
+	srcFloat, ok1 := val.Type().(*types.FloatType)
+	dstFloat, ok2 := targetType.(*types.FloatType)
+	// Float to Float
+	if ok1 && ok2 {
+		if srcFloat.Kind == types.FloatKindFloat && dstFloat.Kind == types.FloatKindDouble {
+			// Float to Double
+			return ctx.Block.NewFPExt(val, targetType), nil
+		} else if srcFloat.Kind == types.FloatKindDouble && dstFloat.Kind == types.FloatKindFloat {
+			// Double to Float
+			return ctx.Block.NewFPTrunc(val, targetType), nil
+		} else {
+			// Same Type
+			return val, nil
+		}
+	}
+
+	return nil, fmt.Errorf("unsupported cast from %v to %v", val.Type(), targetType)
+}
+
 func GenerateLLVMIR(prog *Program) (*ir.Module, error) {
 	ctx := &CodegenContext{
 		Module:      ir.NewModule(),
@@ -312,6 +427,7 @@ func GenerateLLVMIR(prog *Program) (*ir.Module, error) {
 		ifIDCounter: 0,
 	}
 
+	ctx.GetOrDeclarePrintf() // Declare printf
 	for _, fn := range prog.Functions {
 		_, err := fn.Codegen(ctx)
 		if err != nil {
@@ -342,6 +458,8 @@ func llvmTypeFromPrimitive(name string) types.Type {
 		return types.Float
 	case PrimitiveR64:
 		return types.Double
+	case PrimitiveVoid:
+		return types.Void
 	default:
 		panic("Không xác định được kiểu dữ liệu")
 	}
@@ -383,4 +501,30 @@ func canFCmp(left value.Value, right value.Value) bool {
 func (ctx *CodegenContext) NextIfID() int {
 	ctx.ifIDCounter++
 	return ctx.ifIDCounter
+}
+
+func (ctx *CodegenContext) GetOrCreateGlobalString(name, value string) *ir.Global {
+	for _, g := range ctx.Module.Globals {
+		if g.Name() == name {
+			return g
+		}
+	}
+	strConst := constant.NewCharArrayFromString(value)
+	global := ir.NewGlobalDef(name, strConst)
+	global.Linkage = enum.LinkagePrivate // huh??
+	global.Immutable = true
+	ctx.Module.Globals = append(ctx.Module.Globals, global)
+	return global
+}
+
+func (ctx *CodegenContext) GetOrDeclarePrintf() *ir.Func {
+	printf := findFunction(ctx.Module, "printf")
+	if printf != nil {
+		return printf
+	}
+	// printf: i32(i8*, ...)
+	printf = ctx.Module.NewFunc("printf", types.I32, ir.NewParam("fmt", types.NewPointer(types.I8)))
+	printf.Sig.Variadic = true
+	printf.Linkage = enum.LinkageExternal // right? 🤔
+	return printf
 }

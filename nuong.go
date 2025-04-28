@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"github.com/BurntSushi/toml"
+	"github.com/llir/llvm/ir"
 )
 
 func nuong() {
@@ -27,61 +28,7 @@ func nuong() {
 
 	fmt.Println("🔥 Đang nướng bánh...")
 
-	data, err := os.ReadFile(cth.BanDung.DiemVao)
-	if err != nil {
-		log.Fatal("Error reading", err)
-	}
-	content := string(data)
-	// Debugging
-	if slices.Contains(args, "--in-ky-tu") {
-		runes := []rune(content)
-		for index, letter := range runes {
-			fmt.Printf("Ký tự tại byte %d: %c (U+%04X)\n", index, letter, letter)
-		}
-	}
-
-	// Lex source code
-	lexer := NewLexer(content)
-	var tokens []Token
-	for {
-		tok := lexer.NextToken()
-		tokens = append(tokens, tok)
-		if slices.Contains(args, "--in-token") {
-			fmt.Printf("%+v\n", tok)
-		}
-		if tok.Type == TokenEOF {
-			break
-		}
-	}
-
-	// Parse tokens
-	parser := NewParser(tokens)
-	program, err := parser.ParseProgram()
-	if err != nil {
-		log.Fatal("Không thể parse chương trình:\n", err)
-	}
-
-	if slices.Contains(args, "--in-parse") {
-		printProgram(program)
-		fmt.Println()
-	}
-
-	checker := &TypeChecker{}
-	checker.AnalyzeProgram(program)
-
-	if slices.Contains(args, "--in-chuong-trinh") {
-		printProgram(program)
-		fmt.Println()
-	}
-
-	// Generate code
-	module, err := GenerateLLVMIR(program)
-	if err != nil {
-		log.Fatal("Gặp sự cố khi tạo code:\n", err)
-	}
-	if slices.Contains(args, "--in-ir") {
-		fmt.Println(module.String())
-	}
+	module := compile(args, cth)
 
 	// Write '.ll' file
 	output := cth.BanDung.Xuat
@@ -159,6 +106,10 @@ func printStatement(s Statement, indent string) {
 			}
 		}
 		fmt.Println("")
+	case *RegExpr:
+		fmt.Printf("%sRegExpr: ", indent)
+		printExpression(stmt.Expr, "")
+		fmt.Printf(" (Line %d, Column %d)\n", stmt.Line, stmt.Column)
 	default:
 		fmt.Printf("%sUnknown Statement\n", indent)
 	}
@@ -188,4 +139,66 @@ func printExpression(e Expression, indent string) {
 	default:
 		fmt.Printf("Unknown Expression")
 	}
+}
+
+func compile(args []string, cth CongThuc) *ir.Module {
+	data, err := os.ReadFile(cth.BanDung.DiemVao)
+	if err != nil {
+		log.Fatal("Error reading", err)
+	}
+	content := string(data)
+	// Debugging
+	if slices.Contains(args, "--in-ky-tu") {
+		runes := []rune(content)
+		for index, letter := range runes {
+			fmt.Printf("Ký tự tại byte %d: %c (U+%04X)\n", index, letter, letter)
+		}
+	}
+
+	// Lex source code
+	lexer := NewLexer(content)
+	var tokens []Token
+	for {
+		tok := lexer.NextToken()
+		tokens = append(tokens, tok)
+		if slices.Contains(args, "--in-token") {
+			fmt.Printf("%+v\n", tok)
+		}
+		if tok.Type == TokenEOF {
+			break
+		}
+	}
+
+	// Parse tokens
+	parser := NewParser(tokens)
+	program, err := parser.ParseProgram()
+	if err != nil {
+		log.Fatal("Không thể parse chương trình:\n", err)
+	}
+
+	if slices.Contains(args, "--in-parse") {
+		printProgram(program)
+		fmt.Println()
+	}
+
+	checker := &TypeChecker{}
+	err = checker.AnalyzeProgram(program)
+	if err != nil {
+		log.Fatal("Gặp sự cố kiểm tra chương trình:\n", err)
+	}
+
+	if slices.Contains(args, "--in-chuong-trinh") {
+		printProgram(program)
+		fmt.Println()
+	}
+
+	// Generate code
+	module, err := GenerateLLVMIR(program)
+	if err != nil {
+		log.Fatal("Gặp sự cố khi tạo code:\n", err)
+	}
+	if slices.Contains(args, "--in-ir") {
+		fmt.Println(module.String())
+	}
+	return module
 }

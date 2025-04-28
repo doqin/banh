@@ -74,11 +74,23 @@ func (p *Parser) ParseProgram() (*Program, error) {
 		for p.current.Type == TokenNewLine {
 			p.nextToken()
 		}
-		fn, err := p.parseFunction()
-		if err != nil {
-			return nil, err
+		switch p.current.Lexeme {
+			case KeywordHam:
+				fn, err := p.parseFunction()
+				if err != nil {
+					return nil, err
+				}
+				prog.Functions = append(prog.Functions, fn)
+			case KeywordThuTuc:
+				fn, err := p.parseProcedure()
+				if err != nil {
+					return nil, err
+				}
+				prog.Functions = append(prog.Functions, fn)
+			default:
+				return nil, NewLangError(UnexpectedToken, p.current.Lexeme).At(p.current.Line, p.current.Column)
 		}
-		prog.Functions = append(prog.Functions, fn)
+
 		// Skip new lines
 		for p.current.Type == TokenNewLine {
 			p.nextToken()
@@ -88,10 +100,112 @@ func (p *Parser) ParseProgram() (*Program, error) {
 	return prog, nil
 }
 
+func (p *Parser) parseProcedure() (*Function, error) {
+	// Expect 'thủ tục' keyword
+	if p.current.Type != TokenKeyword || p.current.Lexeme != KeywordThuTuc {
+		return nil, NewLangError(WrongToken, KeywordThuTuc, p.current.Lexeme).At(p.current.Line, p.current.Column)
+	}
+	p.nextToken() // Consumes 'thủ tục'
+
+
+	// Expect function name (identifier)
+	if p.current.Type != TokenIdent {
+		return nil, NewLangError(ExpectToken, "tên hàm").At(p.current.Line, p.current.Column)
+	}
+	fnName := p.current.Lexeme
+	line, col := p.current.Line, p.current.Column
+	p.nextToken()
+
+	// Handles parameters
+	// Expect '('
+	if p.current.Type != TokenLParen {
+		return nil, NewLangError(WrongToken, "(", p.current.Lexeme).At(p.current.Line, p.current.Column)
+	}
+	p.nextToken() // Consumes '('
+	params := []*Variable{}
+	if p.current.Type != TokenRParen {
+		for {
+			if p.current.Type != TokenIdent {
+				return nil, NewLangError(WrongToken, "tên tham số", p.current.Lexeme).At(p.current.Line, p.current.Column)
+			}
+			line := p.current.Line
+			col := p.current.Column
+			paramName := p.current.Lexeme
+			p.nextToken()
+			if p.current.Type != TokenOperator || p.current.Lexeme != SymbolMember {
+				return nil, NewLangError(WrongToken, SymbolMember, p.current.Lexeme).At(p.current.Line, p.current.Column)
+			}
+			p.nextToken() // Consumes the 'E'
+
+			if p.current.Type != TokenPrimitive && p.current.Type != TokenIdent {
+				return nil, NewLangError(ExpectToken, "kiểu dữ liệu").At(p.current.Line, p.current.Column)
+			}
+			paramType := p.current.Lexeme
+			p.nextToken()
+
+			params = append(params, &Variable{Name: paramName, Type: paramType, Line: line, Column: col})
+
+			if p.current.Type == TokenComma {
+				p.nextToken()
+				continue
+			}
+
+			if p.current.Type != TokenRParen {
+				return nil, NewLangError(WrongToken, ")", p.current.Lexeme).At(p.current.Line, p.current.Column)
+			}
+			break
+		}
+	}
+	p.nextToken() // Consumes ')'
+
+	// Forces you to create a new line
+	if p.current.Type != TokenNewLine {
+		return nil, NewLangError(ExpectToken, "xuống dòng").At(p.current.Line, p.current.Column)
+	}
+	p.nextToken()
+
+	// Parse function body statements until 'kết thúc'
+	body := []Statement{}
+	for !(p.current.Type == TokenKeyword && p.current.Lexeme == KeywordKetThuc) && p.current.Type != TokenEOF {
+		stmt, err := p.parseStatement()
+		if err != nil {
+			return nil, err
+		}
+		// FIXME: Implement return statement without returning a value
+		st, ok := stmt.(*ReturnStmt)
+		if ok && st.Value != nil {
+			return nil, NewLangError(ReturnTypeMismatch, st.Value.GetType(), PrimitiveVoid)
+		}
+		body = append(body, stmt)
+		if p.current.Type != TokenNewLine && p.current.Type != TokenSemiColon {
+			return nil, NewLangError(ExpectToken, "xuống dòng hoặc ';'").At(p.current.Line, p.current.Column)
+		}
+		p.nextToken()
+		for p.current.Type == TokenNewLine {
+			p.nextToken()
+		}
+	}
+
+	// Expect 'kết thúc'
+	if p.current.Type != TokenKeyword || p.current.Lexeme != KeywordKetThuc {
+		return nil, NewLangError(WrongToken, "kết thúc", p.current.Lexeme).At(p.current.Line, p.current.Column)
+	}
+	p.nextToken()
+
+	return &Function{
+		Name:       fnName,
+		Parameters: params,
+		ReturnType: PrimitiveVoid,
+		Body:       body,
+		Line:       line,
+		Column:     col,
+	}, nil
+}
+
 func (p *Parser) parseFunction() (*Function, error) {
 	// Expect 'hàm' keyword
 	if p.current.Type != TokenKeyword || p.current.Lexeme != KeywordHam {
-		return nil, NewLangError(WrongToken, "hàm", p.current.Lexeme).At(p.current.Line, p.current.Column)
+		return nil, NewLangError(WrongToken, KeywordHam, p.current.Lexeme).At(p.current.Line, p.current.Column)
 	}
 	p.nextToken() // Consumes 'hàm'
 
@@ -210,9 +324,24 @@ func (p *Parser) parseStatement() (Statement, error) {
 		default:
 			return nil, NewLangError(UnexpectedToken, p.current.Lexeme).At(p.current.Line, p.current.Column)
 		}
+	case TokenIdent:
+		return p.parseRegExpr()
 	default:
 		return nil, NewLangError(UnexpectedToken, p.current.Lexeme).At(p.current.Line, p.current.Column)
 	}
+}
+
+func (p *Parser) parseRegExpr() (Statement, error) {
+	line, col := p.current.Line, p.current.Column
+	expr, err := p.parseExpression(0)
+	if err != nil {
+		return nil, err
+	}
+	return &RegExpr{
+		Expr: expr,
+		Line: line,
+		Column: col,
+	}, nil
 }
 
 // TODO: Add multiple variable declaration in one line (its one per line for simplicity for now...)
@@ -274,6 +403,10 @@ func (p *Parser) parseReturnStmt() (Statement, error) {
 	line, column := p.current.Line, p.current.Column
 	// consume 'trả về'
 	p.nextToken()
+	if p.current.Type == TokenNewLine || p.current.Lexeme == PrimitiveVoid || p.current.Type == TokenSemiColon {
+		p.nextToken()
+		return &ReturnStmt{Value: nil, Line: line, Column: column}, nil
+	}
 	expr, err := p.parseExpression(0)
 	if err != nil {
 		return nil, err
@@ -400,6 +533,25 @@ func (p *Parser) parseCallExpr() (Expression, error) {
 	return &CallExpr{Name: fnName, Arguments: arguments, ReturnType: "Unknown", Line: line, Column: column}, nil
 }
 
+func (p *Parser) parseExplicitCast() (Expression, error) {
+	line, column := p.current.Line, p.current.Column
+	castType := p.current.Lexeme
+	p.nextToken() // Consumes the type
+	if p.current.Type != TokenLParen {
+		return nil, NewLangError(WrongToken, "(", p.current.Lexeme).At(p.current.Line, p.current.Column)
+	}
+	p.nextToken() // Consumes '('
+	argument, err := p.parseExpression(0)
+	if err != nil {
+		return nil, err
+	}
+	if p.current.Type != TokenRParen {
+		return nil, NewLangError(WrongToken, ")", p.current.Lexeme).At(p.current.Line, p.current.Column)
+	}
+	p.nextToken() // Consumes ')'
+	return &ExplicitCast{Type: castType, Argument: argument, Line: line, Column: column}, nil
+}
+
 // TODO: Make more advanced expression parser
 func (p *Parser) parseExpression(minPrec int) (Expression, error) {
 	// Parse the left-hand side (primary expression)
@@ -440,6 +592,12 @@ func (p *Parser) parseExpression(minPrec int) (Expression, error) {
 
 func (p *Parser) parsePrimary() (Expression, error) {
 	switch p.current.Type {
+	case TokenPrimitive:
+		casted, err := p.parseExplicitCast()
+		if err != nil {
+			return nil, err
+		}
+		return casted, nil
 	case TokenIdent:
 		if p.peekToken().Type == TokenLParen {
 			call, err := p.parseCallExpr()

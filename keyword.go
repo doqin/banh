@@ -11,6 +11,7 @@ const (
 	KeywordVa       = "và"
 	KeywordHoac     = "hoặc"
 	KeywordTraVe    = "trả về"
+	KeywordThuTuc   = "thủ tục"
 )
 
 var Keywords = map[string]string{

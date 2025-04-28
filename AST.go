@@ -1,6 +1,7 @@
 package main
 
 import (
+
 	"github.com/llir/llvm/ir/value"
 )
 
@@ -42,6 +43,7 @@ type Expression interface {
 	Node
 	expressionNode()
 	Codegen(ctx *CodegenContext) (value.Value, error)
+	GetType() string
 }
 
 // Example statement
@@ -75,6 +77,15 @@ type IfStmt struct {
 func (i *IfStmt) statementNode()  {}
 func (i *IfStmt) Pos() (int, int) { return i.Line, i.Column }
 
+type RegExpr struct { // Is a statement
+	Expr Expression
+	Line int
+	Column int
+}
+
+func (r *RegExpr) statementNode() {}
+func (r *RegExpr) Pos() (int, int) { return r.Line, r.Column}
+
 // Example expressions
 type Identifier struct {
 	Name   string
@@ -85,6 +96,7 @@ type Identifier struct {
 
 func (i *Identifier) expressionNode() {}
 func (i *Identifier) Pos() (int, int) { return i.Line, i.Column }
+func (i *Identifier) GetType() string { return i.Type }
 
 type NumberLiteral struct {
 	Value  string
@@ -95,6 +107,7 @@ type NumberLiteral struct {
 
 func (n *NumberLiteral) expressionNode() {}
 func (n *NumberLiteral) Pos() (int, int) { return n.Line, n.Column }
+func (n *NumberLiteral) GetType() string { return n.Type }
 
 type BinaryExpr struct {
 	Left       Expression
@@ -107,6 +120,7 @@ type BinaryExpr struct {
 
 func (b *BinaryExpr) expressionNode() {}
 func (b *BinaryExpr) Pos() (int, int) { return b.Line, b.Column }
+func (b *BinaryExpr) GetType() string { return b.ReturnType }
 
 type CallExpr struct {
 	Name       string
@@ -118,3 +132,15 @@ type CallExpr struct {
 
 func (c *CallExpr) expressionNode() {}
 func (c *CallExpr) Pos() (int, int) { return c.Line, c.Column }
+func (c *CallExpr) GetType() string { return c.ReturnType }
+
+type ExplicitCast struct {
+	Type string
+	Argument Expression
+	Line int
+	Column int
+}
+
+func (e *ExplicitCast) expressionNode() {}
+func (e *ExplicitCast) Pos() (int, int) { return e.Line, e.Column}
+func (e *ExplicitCast) GetType() string { return e.Type }

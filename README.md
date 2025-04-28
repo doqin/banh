@@ -34,7 +34,7 @@ kết thúc
 
 - [x] Nếu/Không thì
 
-- [ ] In giá trị ra
+- [x] In giá trị ra
 
 - [ ] Thư viện sẵn
 

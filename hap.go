@@ -28,56 +28,7 @@ func hap() {
 
 	fmt.Println("🥟 Đang hấp bánh...")
 
-	data, err := os.ReadFile(cth.BanDung.DiemVao)
-	if err != nil {
-		log.Fatal("Error reading", err)
-	}
-	content := string(data)
-	// Debugging
-	if slices.Contains(args, "--in-ky-tu") {
-		runes := []rune(content)
-		for index, letter := range runes {
-			fmt.Printf("Ký tự tại byte %d: %c (U+%04X)\n", index, letter, letter)
-		}
-	}
-
-	// Lex source code
-	lexer := NewLexer(content)
-	var tokens []Token
-	for {
-		tok := lexer.NextToken()
-		tokens = append(tokens, tok)
-		if slices.Contains(args, "--in-token") {
-			fmt.Printf("%+v\n", tok)
-		}
-		if tok.Type == TokenEOF {
-			break
-		}
-	}
-
-	// Parse tokens
-	parser := NewParser(tokens)
-	program, err := parser.ParseProgram()
-	if err != nil {
-		log.Fatal("Không thể parse chương trình:\n", err)
-	}
-
-	checker := &TypeChecker{}
-	checker.AnalyzeProgram(program)
-
-	if slices.Contains(args, "--in-chuong-trinh") {
-		printProgram(program)
-		fmt.Println()
-	}
-
-	// Generate code
-	module, err := GenerateLLVMIR(program)
-	if err != nil {
-		log.Fatal("Gặp sự cố khi tạo code:\n", err)
-	}
-	if slices.Contains(args, "--in-ir") {
-		fmt.Println(module.String())
-	}
+	module := compile(args, cth)
 
 	dir := filepath.Dir(cth.BanDung.Xuat)
 	file := filepath.Base(cth.BanDung.Xuat)
@@ -102,6 +53,6 @@ func hap() {
 		log.Fatalf("Gặp sự cố khi chạy 'lli':\n %v\nXuất: %s", err, output)
 	}
 
-	log.Println(string(output))
+	fmt.Println(string(output))
 	os.Remove(tmpfile.Name())
 }
