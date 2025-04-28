@@ -132,6 +132,16 @@ func (tc *TypeChecker) AnalyzeStatement(stmt Statement, expectedReturnType strin
 			panic(NewLangError(ReturnTypeMismatch, valType, expectedReturnType).At(line, col))
 		}
 		castExpr(s.Value, expectedReturnType)
+	case *IfStmt:
+		tc.AnalyzeExpression(s.Condition)
+		for _, stmt := range s.ThenBlock {
+			tc.AnalyzeStatement(stmt, expectedReturnType)
+		}
+		if s.ElseBlock != nil {
+			for _, stmt = range s.ElseBlock {
+				tc.AnalyzeStatement(stmt, expectedReturnType)
+			}
+		}
 	default:
 		panic("Câu lệnh không xác định")
 	}
@@ -166,6 +176,17 @@ func (tc *TypeChecker) AnalyzeExpression(expr Expression) {
 		leftType := tc.getExprType(e.Left)
 		rightType := tc.getExprType(e.Right)
 
+		if e.Operator == KeywordVa || e.Operator == KeywordHoac {
+			if leftType != PrimitiveB1 {
+				panic(NewLangError(TypeMismatch, leftType, PrimitiveB1).At(e.Line, e.Column))
+			}
+			if rightType != PrimitiveB1 {
+				panic(NewLangError(TypeMismatch, rightType, PrimitiveB1).At(e.Line, e.Column))
+			}
+			e.ReturnType = PrimitiveB1
+			break
+		}
+
 		if leftType == rightType {
 			e.ReturnType = leftType
 			break
@@ -189,7 +210,13 @@ func (tc *TypeChecker) AnalyzeExpression(expr Expression) {
 		if leftType != rightType && !canImplicitCast(rightType, leftType) {
 			panic(NewLangError(TypeMismatch, rightType, leftType).At(e.Line, e.Column))
 		}
-		e.ReturnType = leftType
+
+		switch e.Operator {
+			case SymbolLess, SymbolLessEqual, SymbolGreater, SymbolGreaterEqual, SymbolEqual, SymbolNotEqual:
+				e.ReturnType = PrimitiveB1
+			default:
+				e.ReturnType = leftType
+		}
 	case *CallExpr:
 		// Resolve function symbol
 		f, found := tc.GlobalScope.Resolve(e.Name)
@@ -216,11 +243,20 @@ func (tc *TypeChecker) AnalyzeExpression(expr Expression) {
 			tc.AnalyzeExpression(arg)
 			argType := tc.getExprType(arg)
 			paramType := fn.Parameters[i].Type
+			// FIXME:
+			if argType != paramType && isLiteral(arg) {
+				if !canLiteralCast(argType, paramType) {
+					line, col := arg.Pos()
+					panic(NewLangError(TypeMismatch, argType, paramType).At(line, col))
+				}
+				argType = paramType
+			}
 
-			if argType != paramType {
-				line, col := e.Pos()
+			if argType != paramType && !canImplicitCast(argType, paramType) {
+				line, col := arg.Pos()
 				panic(NewLangError(ArgumentTypeMismatch, argType, paramType).At(line, col))
 			}
+			castExpr(arg, paramType)
 		}
 
 		e.ReturnType = fn.ReturnType

@@ -6,15 +6,17 @@ import (
 
 	"github.com/llir/llvm/ir"
 	"github.com/llir/llvm/ir/constant"
+	"github.com/llir/llvm/ir/enum"
 	"github.com/llir/llvm/ir/types"
 	"github.com/llir/llvm/ir/value"
 )
 
 type CodegenContext struct {
-	Module  *ir.Module
-	Func    *ir.Func
-	Block   *ir.Block
-	Symbols map[string]value.Value
+	Module      *ir.Module
+	Func        *ir.Func
+	Block       *ir.Block
+	Symbols     map[string]value.Value
+	ifIDCounter int
 }
 
 // Function gen
@@ -105,13 +107,71 @@ func (r *ReturnStmt) Codegen(ctx *CodegenContext) (value.Value, error) {
 	return val, nil
 }
 
+func (i *IfStmt) Codegen(ctx *CodegenContext) (value.Value, error) {
+	condVal, err := i.Condition.Codegen(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if condVal.Type() != types.I1 {
+		var intType *types.IntType
+		switch condVal.Type() {
+		case types.I8:
+			intType = types.I8
+		case types.I16:
+			intType = types.I16
+		case types.I32:
+			intType = types.I32
+		case types.I64:
+			intType = types.I64
+		default:
+			return nil, fmt.Errorf("unsupported condition type: %v", condVal.Type())
+		}
+		condVal = ctx.Block.NewICmp(enum.IPredNE, condVal, constant.NewInt(intType, 0))
+	}
+
+	ifID := ctx.NextIfID()
+	thenBlock := ctx.Func.NewBlock(fmt.Sprintf("if.then.%d", ifID))
+	elseBlock := ctx.Func.NewBlock(fmt.Sprintf("if.else.%d", ifID))
+	leaveBlock := ctx.Func.NewBlock(fmt.Sprintf("if.end.%d", ifID))
+
+	ctx.Block.NewCondBr(condVal, thenBlock, elseBlock)
+
+	ctx.Block = thenBlock
+	for _, stmt := range i.ThenBlock {
+		_, err := stmt.Codegen(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if !blockHasTerminator(ctx.Block) {
+		ctx.Block.NewBr(leaveBlock)
+	}
+
+	ctx.Block = elseBlock
+	for _, stmt := range i.ElseBlock {
+		_, err := stmt.Codegen(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if !blockHasTerminator(ctx.Block) {
+		ctx.Block.NewBr(leaveBlock)
+	}
+
+	ctx.Block = leaveBlock
+	return nil, nil
+
+	// something something
+}
+
 func (id *Identifier) Codegen(ctx *CodegenContext) (value.Value, error) {
 	alloca, ok := ctx.Symbols[id.Name]
 	if !ok {
 		// TODO: Handle this differently
 		return nil, fmt.Errorf("unknown variable %s", id.Name)
 	}
-	return ctx.Block.NewLoad(llvmTypeFromPrimitive(id.Type), alloca), nil
+	return ctx.Block.NewLoad(alloca), nil
 }
 
 func (n *NumberLiteral) Codegen(ctx *CodegenContext) (value.Value, error) {
@@ -164,19 +224,64 @@ func (b *BinaryExpr) Codegen(ctx *CodegenContext) (value.Value, error) {
 		return ctx.Block.NewMul(leftVal, rightVal), nil
 	case SymbolSlash:
 		// For now treat unsigned as signed
-		if leftVal.Type().Equal(types.I32) {
+		if leftVal.Type().Equal(types.I32) && rightVal.Type().Equal(types.I32) || leftVal.Type().Equal(types.I64) && rightVal.Type().Equal(types.I64) {
 			return ctx.Block.NewSDiv(leftVal, rightVal), nil
 		}
-		if leftVal.Type().Equal(types.Double) || leftVal.Type().Equal(types.Float) {
-			return ctx.Block.NewFAdd(leftVal, rightVal), nil
+		if (leftVal.Type().Equal(types.Double) || leftVal.Type().Equal(types.Float)) && (rightVal.Type().Equal(types.Double) || rightVal.Type().Equal(types.Float)) {
+			return ctx.Block.NewFDiv(leftVal, rightVal), nil
 		}
-		panic("Gặp sự cố khi thực hiện phép toán")
+		return nil, fmt.Errorf("Gặp sự cố khi thực hiện phép toán")
+	case SymbolLess:
+		if canICmp(leftVal, rightVal) {
+			return ctx.Block.NewICmp(enum.IPredSLT, leftVal, rightVal), nil
+		} else if canFCmp(leftVal, rightVal) {
+			return ctx.Block.NewFCmp(enum.FPredOLT, leftVal, rightVal), nil
+		}
+		return nil, fmt.Errorf("Gặp sự cố khi thực hiện phép so sánh giữa '%v' và '%v'", leftVal.Type(), rightVal.Type())
+	case SymbolLessEqual:
+		if canICmp(leftVal, rightVal) {
+			return ctx.Block.NewICmp(enum.IPredSLE, leftVal, rightVal), nil
+		} else if canFCmp(leftVal, rightVal) {
+			return ctx.Block.NewFCmp(enum.FPredOLE, leftVal, rightVal), nil
+		}
+		return nil, fmt.Errorf("Gặp sự cố khi thực hiện phép so sánh giữa '%v' và '%v'", leftVal.Type(), rightVal.Type())
+	case SymbolGreater:
+		if canICmp(leftVal, rightVal) {
+			return ctx.Block.NewICmp(enum.IPredSGT, leftVal, rightVal), nil
+		} else if canFCmp(leftVal, rightVal) {
+			return ctx.Block.NewFCmp(enum.FPredOGT, leftVal, rightVal), nil
+		}
+		return nil, fmt.Errorf("Gặp sự cố khi thực hiện phép so sánh giữa '%v' và '%v'", leftVal.Type(), rightVal.Type())
+	case SymbolGreaterEqual:
+		if canICmp(leftVal, rightVal) {
+			return ctx.Block.NewICmp(enum.IPredSGE, leftVal, rightVal), nil
+		} else if canFCmp(leftVal, rightVal) {
+			return ctx.Block.NewFCmp(enum.FPredOGE, leftVal, rightVal), nil
+		}
+		return nil, fmt.Errorf("Gặp sự cố khi thực hiện phép so sánh giữa '%v' và '%v'", leftVal.Type(), rightVal.Type())
+	case SymbolEqual:
+		if canICmp(leftVal, rightVal) {
+			return ctx.Block.NewICmp(enum.IPredEQ, leftVal, rightVal), nil
+		} else if canFCmp(leftVal, rightVal) {
+			return ctx.Block.NewFCmp(enum.FPredOEQ, leftVal, rightVal), nil
+		}
+		return nil, fmt.Errorf("Gặp sự cố khi thực hiện phép so sánh giữa '%v' và '%v'", leftVal.Type(), rightVal.Type())
+	case SymbolNotEqual:
+		if canICmp(leftVal, rightVal) {
+			return ctx.Block.NewICmp(enum.IPredNE, leftVal, rightVal), nil
+		} else if canFCmp(leftVal, rightVal) {
+			return ctx.Block.NewFCmp(enum.FPredONE, leftVal, rightVal), nil
+		}
+		return nil, fmt.Errorf("Gặp sự cố khi thực hiện phép so sánh giữa '%v' và '%v'", leftVal.Type(), rightVal.Type())
+	case KeywordVa:
+		return ctx.Block.NewAnd(leftVal, rightVal), nil
+	case KeywordHoac:
+		return ctx.Block.NewOr(leftVal, rightVal), nil
 	default:
-		panic("Gặp sự cố khi thực hiện phép toán")
+		return nil, fmt.Errorf("Gặp sự cố khi thực hiện phép toán")
 	}
 }
 
-// TODO: Implement it
 func (c *CallExpr) Codegen(ctx *CodegenContext) (value.Value, error) {
 	callee := findFunction(ctx.Module, c.Name)
 	if callee == nil {
@@ -202,8 +307,9 @@ func (c *CallExpr) Codegen(ctx *CodegenContext) (value.Value, error) {
 
 func GenerateLLVMIR(prog *Program) (*ir.Module, error) {
 	ctx := &CodegenContext{
-		Module:  ir.NewModule(),
-		Symbols: make(map[string]value.Value),
+		Module:      ir.NewModule(),
+		Symbols:     make(map[string]value.Value),
+		ifIDCounter: 0,
 	}
 
 	for _, fn := range prog.Functions {
@@ -226,6 +332,8 @@ func blockHasTerminator(block *ir.Block) bool {
 
 func llvmTypeFromPrimitive(name string) types.Type {
 	switch name {
+	case PrimitiveB1:
+		return types.I1
 	case PrimitiveN32, PrimitiveZ32:
 		return types.I32
 	case PrimitiveN64, PrimitiveZ64:
@@ -246,4 +354,33 @@ func findFunction(module *ir.Module, funcName string) *ir.Func {
 		}
 	}
 	return nil
+}
+
+func canICmp(left value.Value, right value.Value) bool {
+	leftType := left.Type()
+	rightType := right.Type()
+
+	if leftType.Equal(rightType) {
+		if leftType.Equal(types.I32) || leftType.Equal(types.I64) {
+			return true
+		}
+	}
+	return false
+}
+
+func canFCmp(left value.Value, right value.Value) bool {
+	leftType := left.Type()
+	rightType := right.Type()
+
+	if leftType.Equal(rightType) {
+		if leftType.Equal(types.Float) || leftType.Equal(types.Double) {
+			return true
+		}
+	}
+	return false
+}
+
+func (ctx *CodegenContext) NextIfID() int {
+	ctx.ifIDCounter++
+	return ctx.ifIDCounter
 }

@@ -1,4 +1,7 @@
 # Bánh 🥖
+> "Dễ như ăn 'Bánh'"
+>
+> **- Bánh, 2025**
 
 Ngôn ngữ lập trình bằng tiếng Việt
 
@@ -8,9 +11,11 @@ Thiết kế cuối cùng ↓
 biến a, b E Z32
 
 hàm chính() -> Z32
-  trong khi a <= b hoặc b >= a và a = 1 thì
+  a := 5
+  b := 7
+  trong khi a <= b hoặc a != 10 thì
     in("nhỏ hơn")
-    a := a + 1; in(b)
+    a := a + 1; in(cộng(a, b))
   kết thúc
 kết thúc
 
@@ -20,15 +25,21 @@ kết thúc
 ```
 
 ## Tính năng
-  
+
 - [x] Tạo biến
-  
+
 - [x] Trả giá trị
-  
+
 - [x] Sử dụng hàm tạo ra
 
-- [ ] Nếu/Không thì
+- [x] Nếu/Không thì
 
 - [ ] In giá trị ra
-  
+
+- [ ] Thư viện sẵn
+
+- [ ] Dữ liệu có cấu trúc
+
+- [ ] Sử dụng hàm ffi (?)
+
 - [ ] V.V...

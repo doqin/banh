@@ -88,6 +88,9 @@ func (l *Lexer) readKeywordOrIdentifier() Token {
 	if l.matchMultiWordKeyword("kết", "thúc") {
 		return Token{Type: TokenKeyword, Lexeme: KeywordKetThuc, Line: l.line, Column: col}
 	}
+	if l.matchMultiWordKeyword("không", "thì") {
+		return Token{Type: TokenKeyword, Lexeme: KeywordKhongThi, Line: l.line, Column: col}
+	}
 	if l.matchMultiWordKeyword("lý", "luận") {
 		return Token{Type: TokenPrimitive, Lexeme: PrimitiveB1, Line: l.line, Column: col}
 	}

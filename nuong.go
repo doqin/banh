@@ -144,6 +144,21 @@ func printStatement(s Statement, indent string) {
 		fmt.Printf("%sReturn: ", indent)
 		printExpression(stmt.Value, "")
 		fmt.Printf(" (Line %d, Column %d)\n", stmt.Line, stmt.Column)
+	case *IfStmt:
+		fmt.Print(indent, "IfStmt:\n", indent+"   ", "Condition: ")
+		printExpression(stmt.Condition, indent+"   ")
+		fmt.Printf(" (Line %d, Column %d)\n", stmt.Line, stmt.Column)
+		fmt.Print(indent+"   ", "ThenBlock:\n")
+		for _, stmt := range stmt.ThenBlock {
+			printStatement(stmt, indent+"      ")
+		}
+		if stmt.ElseBlock != nil {
+			fmt.Print(indent+"   ", "ElseBlock:\n")
+			for _, stmt := range stmt.ElseBlock {
+				printStatement(stmt, indent+"      ")
+			}
+		}
+		fmt.Println("")
 	default:
 		fmt.Printf("%sUnknown Statement\n", indent)
 	}
@@ -158,9 +173,18 @@ func printExpression(e Expression, indent string) {
 	case *BinaryExpr:
 		fmt.Print("BinaryExpr(")
 		printExpression(expr.Left, indent)
-		fmt.Print(expr.Operator)
+		fmt.Print(" ", expr.Operator, " ")
 		printExpression(expr.Right, indent)
 		fmt.Print(")")
+	case *CallExpr:
+		fmt.Printf("CallExpr: %s(", expr.Name)
+		for i, argument := range expr.Arguments {
+			printExpression(argument, indent)
+			if i < len(expr.Arguments)-1 {
+				fmt.Print(", ")
+			}
+		}
+		fmt.Printf(") -> %s", expr.ReturnType)
 	default:
 		fmt.Printf("Unknown Expression")
 	}

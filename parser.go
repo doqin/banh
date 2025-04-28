@@ -3,10 +3,27 @@ package main
 import "strings"
 
 var precedences = map[string]int{
-	SymbolPlus:     10,
-	SymbolMinus:    10,
-	SymbolAsterisk: 20,
-	SymbolSlash:    20,
+	KeywordHoac:        3,
+	KeywordVa:          6,
+	SymbolEqual:        12,
+	SymbolNotEqual:     12,
+	SymbolLessEqual:    25,
+	SymbolLess:         25,
+	SymbolGreaterEqual: 25,
+	SymbolGreater:      25,
+	SymbolPlus:         50,
+	SymbolMinus:        50,
+	SymbolAsterisk:     100,
+	SymbolSlash:        100,
+}
+
+var defaultVal = map[string]string{
+	PrimitiveR64: "0.0",
+	PrimitiveR32: "0.0",
+	PrimitiveZ64: "0",
+	PrimitiveZ32: "0",
+	PrimitiveN64: "0",
+	PrimitiveN32: "0",
 }
 
 type Parser struct {
@@ -184,6 +201,8 @@ func (p *Parser) parseStatement() (Statement, error) {
 	switch p.current.Type {
 	case TokenKeyword:
 		switch p.current.Lexeme {
+		case KeywordNeu:
+			return p.parseIfStmt()
 		case KeywordBien: // variable declartion
 			return p.parseVarDecl()
 		case KeywordTraVe: // return statement
@@ -237,10 +256,15 @@ func (p *Parser) parseVarDecl() (Statement, error) {
 		}, nil
 	}
 
+	initializer, ok := defaultVal[varType]
+	if !ok {
+		initializer = "-1"
+	}
+	line, col = p.current.Line, p.current.Column
 	// No initializer found
 	return &VarDecl{
 		Var:    &Variable{Name: varName, Type: varType, Line: line, Column: col},
-		Value:  nil,
+		Value:  &NumberLiteral{Value: initializer, Type: varType, Line: line, Column: col},
 		Line:   line,
 		Column: col,
 	}, nil
@@ -255,6 +279,96 @@ func (p *Parser) parseReturnStmt() (Statement, error) {
 		return nil, err
 	}
 	return &ReturnStmt{Value: expr, Line: line, Column: column}, nil
+}
+
+func (p *Parser) parseIfStmt() (Statement, error) {
+	line, column := p.current.Line, p.current.Column
+	// Consumes 'nếu'
+	p.nextToken()
+	condi, err := p.parseExpression(0)
+	if err != nil {
+		return nil, err
+	}
+	if p.current.Type != TokenKeyword || p.current.Lexeme != KeywordThi {
+		return nil, NewLangError(WrongToken, TokenKeyword, p.current.Lexeme).At(p.current.Line, p.current.Column)
+	}
+	p.nextToken() // Consumes the 'thì'
+	thenBlock := []Statement{}
+	for p.current.Type != TokenKeyword && (p.current.Lexeme != KeywordKetThuc && p.current.Lexeme != KeywordKhongThi) && p.current.Type != TokenEOF {
+		stmt, err := p.parseStatement()
+		if err != nil {
+			return nil, err
+		}
+		thenBlock = append(thenBlock, stmt)
+		if p.current.Type != TokenNewLine && p.current.Type != TokenSemiColon {
+			return nil, NewLangError(ExpectToken, "xuống dòng hoặc ';'").At(p.current.Line, p.current.Column)
+		}
+		p.nextToken()
+		for p.current.Type == TokenNewLine {
+			p.nextToken()
+		}
+	}
+	switch p.current.Lexeme {
+	case KeywordKetThuc:
+		p.nextToken() // Consumes 'kết thúc'
+		return &IfStmt{
+			Condition: condi,
+			ThenBlock: thenBlock,
+			ElseBlock: nil,
+			Line:      line,
+			Column:    column,
+		}, nil
+	case KeywordKhongThi:
+		p.nextToken() // Consumes 'không thì'
+
+		switch p.current.Lexeme {
+		case KeywordNeu:
+			elseBlock, err := p.parseIfStmt()
+			if err != nil {
+				return nil, err
+			}
+			return &IfStmt{
+				Condition: condi,
+				ThenBlock: thenBlock,
+				ElseBlock: []Statement{elseBlock},
+				Line:      line,
+				Column:    column,
+			}, nil
+		default:
+			if p.current.Type != TokenNewLine {
+				return nil, NewLangError(ExpectToken, "xuống dòng").At(p.current.Line, p.current.Column)
+			}
+			p.nextToken() // Consumes '\n'
+			elseBlock := []Statement{}
+			for p.current.Lexeme != KeywordKetThuc && p.current.Type != TokenEOF {
+				stmt, err := p.parseStatement()
+				if err != nil {
+					return nil, err
+				}
+				elseBlock = append(elseBlock, stmt)
+				if p.current.Type != TokenNewLine && p.current.Type != TokenSemiColon {
+					return nil, NewLangError(ExpectToken, "xuống dòng hoặc ';'").At(p.current.Line, p.current.Column)
+				}
+				p.nextToken()
+				for p.current.Type == TokenNewLine {
+					p.nextToken()
+				}
+			}
+			if p.current.Lexeme != KeywordKetThuc {
+				return nil, NewLangError(WrongToken, KeywordKetThuc, p.current.Lexeme).At(p.current.Line, p.current.Column)
+			}
+			p.nextToken() // Consumes 'kết thúc'
+			return &IfStmt{
+				Condition: condi,
+				ThenBlock: thenBlock,
+				ElseBlock: elseBlock,
+				Line:      line,
+				Column:    column,
+			}, nil
+		}
+	default:
+		return nil, NewLangError(WrongToken, KeywordKetThuc, p.current.Lexeme).At(p.current.Line, p.current.Column)
+	}
 }
 
 func (p *Parser) parseCallExpr() (Expression, error) {
@@ -365,7 +479,7 @@ func (p *Parser) parsePrimary() (Expression, error) {
 
 // Helper function
 func (p *Parser) currentPrecedence() int {
-	if p.current.Type == TokenOperator {
+	if p.current.Type == TokenOperator || p.current.Type == TokenKeyword {
 		if prec, ok := precedences[p.current.Lexeme]; ok {
 			return prec
 		}

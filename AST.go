@@ -64,6 +64,17 @@ type ReturnStmt struct {
 func (r *ReturnStmt) statementNode()  {}
 func (r *ReturnStmt) Pos() (int, int) { return r.Line, r.Column }
 
+type IfStmt struct {
+	Condition Expression
+	ThenBlock []Statement
+	ElseBlock []Statement
+	Line      int
+	Column    int
+}
+
+func (i *IfStmt) statementNode()  {}
+func (i *IfStmt) Pos() (int, int) { return i.Line, i.Column }
+
 // Example expressions
 type Identifier struct {
 	Name   string

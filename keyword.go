@@ -5,6 +5,7 @@ const (
 	KeywordBien     = "biến"
 	KeywordNeu      = "nếu"
 	KeywordTrongKhi = "trong khi"
+	KeywordKhongThi = "không thì"
 	KeywordThi      = "thì"
 	KeywordKetThuc  = "kết thúc"
 	KeywordVa       = "và"
