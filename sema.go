@@ -365,26 +365,30 @@ func (tc *TypeChecker) AnalyzeCallExpr(c *CallExpr) error {
 
 	// Check argument types
 	for i, arg := range c.Arguments {
-		tc.AnalyzeExpression(arg)
+		err := tc.AnalyzeExpression(arg)
+		if err != nil {
+			return err
+		}
 		argType := tc.getExprType(arg)
 		paramType := fn.Parameters[i].Type
-		// FIXME:
-		if argType != paramType && paramType != PrimitiveAny && isLiteral(arg) {
+		if argType == paramType || paramType == PrimitiveAny {
+			continue
+		}
+
+		if isLiteral(arg) {
 			if !canLiteralCast(argType, paramType) {
 				line, col := arg.Pos()
-				return NewLangError(TypeMismatch, argType, paramType).At(line, col)
+				return NewLangError(ArgumentTypeMismatch, argType, paramType).At(line, col)
 			}
 			argType = paramType
 		}
 
-		if argType != paramType && paramType != PrimitiveAny && !canImplicitCast(argType, paramType) {
+		if !canImplicitCast(argType, paramType) {
 			line, col := arg.Pos()
 			return NewLangError(ArgumentTypeMismatch, argType, paramType).At(line, col)
 		}
 
-		if paramType != PrimitiveAny {
-			castExpr(arg, paramType)
-		}
+		castExpr(arg, paramType)
 	}
 
 	c.ReturnType = fn.ReturnType
