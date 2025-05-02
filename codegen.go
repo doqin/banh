@@ -24,17 +24,28 @@ func (fn *Function) Codegen(ctx *CodegenContext) (*ir.Func, error) {
 	// Handle params
 	params := make([]*ir.Param, len(fn.Parameters))
 	for i, param := range fn.Parameters {
-		paramType := llvmTypeFromPrimitive(param.Type)
+		paramType, err := llvmTypeFromPrimitive(param.Type)
+		if err != nil {
+			return nil, err
+		}
 		params[i] = ir.NewParam(param.Name, paramType)
 	}
 	var fnIR *ir.Func
 	if fn.Name == "chính" {
-		if fn.ReturnType != PrimitiveZ32 {
+		if !isSameTypeAndName(fn.ReturnType, &PrimitiveType{Name: PrimitiveZ32}) {
 			return nil, NewLangError(ReturnTypeMismatch, fn.ReturnType, PrimitiveZ32).At(fn.Line, fn.Column)
 		}
-		fnIR = ctx.Module.NewFunc("main", llvmTypeFromPrimitive(fn.ReturnType), params...)
+		returnType, err := llvmTypeFromPrimitive(fn.ReturnType)
+		if err != nil {
+			return nil, err
+		}
+		fnIR = ctx.Module.NewFunc("main", returnType, params...)
 	} else {
-		fnIR = ctx.Module.NewFunc(fn.Name, llvmTypeFromPrimitive(fn.ReturnType), params...)
+		returnType, err := llvmTypeFromPrimitive(fn.ReturnType)
+		if err != nil {
+			return nil, err
+		}
+		fnIR = ctx.Module.NewFunc(fn.Name, returnType, params...)
 	}
 
 	entry := fnIR.NewBlock("entry")
@@ -88,7 +99,11 @@ func (r *RegExpr) Codegen(ctx *CodegenContext) (value.Value, error) {
 func (v *VarDecl) Codegen(ctx *CodegenContext) (value.Value, error) {
 	entryBlock := ctx.Func.Blocks[0]
 	// Allocate space for variable in entry block
-	alloca := entryBlock.NewAlloca(llvmTypeFromPrimitive(v.Var.Type))
+	varType, err := llvmTypeFromPrimitive(v.Var.Type)
+	if err != nil {
+		return nil, err
+	}
+	alloca := entryBlock.NewAlloca(varType)
 
 	// Save the alloca in the symbol table
 	ctx.Symbols[v.Var.Name] = alloca
@@ -183,7 +198,7 @@ func (id *Identifier) Codegen(ctx *CodegenContext) (value.Value, error) {
 }
 
 func (n *NumberLiteral) Codegen(ctx *CodegenContext) (value.Value, error) {
-	switch n.Type {
+	switch n.Type.Name {
 	case PrimitiveN32, PrimitiveZ32:
 		val, err := strconv.ParseInt(n.Value, 10, 32)
 		if err != nil {
@@ -211,6 +226,21 @@ func (n *NumberLiteral) Codegen(ctx *CodegenContext) (value.Value, error) {
 	default:
 		panic("Không xác định được kiểu dữ liệu của số")
 	}
+}
+
+// TODO: Implement the unitialized expression
+func (u *UninitializedExpr) Codegen(ctx *CodegenContext) (value.Value, error) {
+	return nil, nil
+}
+
+// TODO: Implement the struct literal codegen
+func (s *StructLiteral) Codegen(ctx *CodegenContext) (value.Value, error) {
+	return nil, nil
+}
+
+// TODO: Implement the array literal codegen
+func (a *ArrayLiteral) Codegen(ctx *CodegenContext) (value.Value, error) {
+	return nil, nil
 }
 
 func (b *BinaryExpr) Codegen(ctx *CodegenContext) (value.Value, error) {
@@ -250,55 +280,55 @@ func (b *BinaryExpr) Codegen(ctx *CodegenContext) (value.Value, error) {
 		if (leftVal.Type().Equal(types.Double) || leftVal.Type().Equal(types.Float)) && (rightVal.Type().Equal(types.Double) || rightVal.Type().Equal(types.Float)) {
 			return ctx.Block.NewFDiv(leftVal, rightVal), nil
 		}
-		return nil, fmt.Errorf("Gặp sự cố khi thực hiện phép toán")
+		return nil, fmt.Errorf("gặp sự cố khi thực hiện phép toán")
 	case SymbolLess:
 		if canICmp(leftVal, rightVal) {
 			return ctx.Block.NewICmp(enum.IPredSLT, leftVal, rightVal), nil
 		} else if canFCmp(leftVal, rightVal) {
 			return ctx.Block.NewFCmp(enum.FPredOLT, leftVal, rightVal), nil
 		}
-		return nil, fmt.Errorf("Gặp sự cố khi thực hiện phép so sánh giữa '%v' và '%v'", leftVal.Type(), rightVal.Type())
+		return nil, NewLangError(ErrorBinaryExpr, leftVal.Type(), rightVal.Type()).At(b.Line, b.Column)
 	case SymbolLessEqual:
 		if canICmp(leftVal, rightVal) {
 			return ctx.Block.NewICmp(enum.IPredSLE, leftVal, rightVal), nil
 		} else if canFCmp(leftVal, rightVal) {
 			return ctx.Block.NewFCmp(enum.FPredOLE, leftVal, rightVal), nil
 		}
-		return nil, fmt.Errorf("Gặp sự cố khi thực hiện phép so sánh giữa '%v' và '%v'", leftVal.Type(), rightVal.Type())
+		return nil, NewLangError(ErrorBinaryExpr, leftVal.Type(), rightVal.Type()).At(b.Line, b.Column)
 	case SymbolGreater:
 		if canICmp(leftVal, rightVal) {
 			return ctx.Block.NewICmp(enum.IPredSGT, leftVal, rightVal), nil
 		} else if canFCmp(leftVal, rightVal) {
 			return ctx.Block.NewFCmp(enum.FPredOGT, leftVal, rightVal), nil
 		}
-		return nil, fmt.Errorf("Gặp sự cố khi thực hiện phép so sánh giữa '%v' và '%v'", leftVal.Type(), rightVal.Type())
+		return nil, NewLangError(ErrorBinaryExpr, leftVal.Type(), rightVal.Type()).At(b.Line, b.Column)
 	case SymbolGreaterEqual:
 		if canICmp(leftVal, rightVal) {
 			return ctx.Block.NewICmp(enum.IPredSGE, leftVal, rightVal), nil
 		} else if canFCmp(leftVal, rightVal) {
 			return ctx.Block.NewFCmp(enum.FPredOGE, leftVal, rightVal), nil
 		}
-		return nil, fmt.Errorf("Gặp sự cố khi thực hiện phép so sánh giữa '%v' và '%v'", leftVal.Type(), rightVal.Type())
+		return nil, NewLangError(ErrorBinaryExpr, leftVal.Type(), rightVal.Type()).At(b.Line, b.Column)
 	case SymbolEqual:
 		if canICmp(leftVal, rightVal) {
 			return ctx.Block.NewICmp(enum.IPredEQ, leftVal, rightVal), nil
 		} else if canFCmp(leftVal, rightVal) {
 			return ctx.Block.NewFCmp(enum.FPredOEQ, leftVal, rightVal), nil
 		}
-		return nil, fmt.Errorf("Gặp sự cố khi thực hiện phép so sánh giữa '%v' và '%v'", leftVal.Type(), rightVal.Type())
+		return nil, NewLangError(ErrorBinaryExpr, leftVal.Type(), rightVal.Type()).At(b.Line, b.Column)
 	case SymbolNotEqual:
 		if canICmp(leftVal, rightVal) {
 			return ctx.Block.NewICmp(enum.IPredNE, leftVal, rightVal), nil
 		} else if canFCmp(leftVal, rightVal) {
 			return ctx.Block.NewFCmp(enum.FPredONE, leftVal, rightVal), nil
 		}
-		return nil, fmt.Errorf("Gặp sự cố khi thực hiện phép so sánh giữa '%v' và '%v'", leftVal.Type(), rightVal.Type())
+		return nil, NewLangError(ErrorBinaryExpr, leftVal.Type(), rightVal.Type()).At(b.Line, b.Column)
 	case KeywordVa:
 		return ctx.Block.NewAnd(leftVal, rightVal), nil
 	case KeywordHoac:
 		return ctx.Block.NewOr(leftVal, rightVal), nil
 	default:
-		return nil, fmt.Errorf("Gặp sự cố khi thực hiện phép toán")
+		return nil, fmt.Errorf("gặp sự cố khi thực hiện phép toán")
 	}
 }
 
@@ -361,14 +391,18 @@ func (e *ExplicitCast) Codegen(ctx *CodegenContext) (value.Value, error) {
 		return nil, err
 	}
 
-	targetType := llvmTypeFromPrimitive(e.Type)
+	targetType, err := llvmTypeFromPrimitive(&e.Type)
+	if err != nil {
+		return nil, err
+	}
 
 	// Integer to Integer
 	if srcInt, ok1 := val.Type().(*types.IntType); ok1 {
 		if dstInt, ok2 := targetType.(*types.IntType); ok2 {
 			if srcInt.BitSize < dstInt.BitSize {
 				// Extend
-				if e.Type == PrimitiveZ32 || e.Type == PrimitiveZ64 {
+				if !isSameTypeAndName(&e.Type, &PrimitiveType{Name: PrimitiveZ32}) ||
+					!isSameTypeAndName(&e.Type, &PrimitiveType{Name: PrimitiveZ64}) {
 					return ctx.Block.NewZExt(val, targetType), nil
 				} else {
 					return ctx.Block.NewSExt(val, targetType), nil
@@ -386,7 +420,8 @@ func (e *ExplicitCast) Codegen(ctx *CodegenContext) (value.Value, error) {
 	// Integer to Float
 	if _, ok1 := val.Type().(*types.IntType); ok1 {
 		if _, ok2 := targetType.(*types.FloatType); ok2 {
-			if e.Type == PrimitiveR32 || e.Type == PrimitiveR64 {
+			if !isSameTypeAndName(&e.Type, &PrimitiveType{Name: PrimitiveR32}) ||
+				!isSameTypeAndName(&e.Type, &PrimitiveType{Name: PrimitiveR64}) {
 				// Signed int to float
 				return ctx.Block.NewSIToFP(val, targetType), nil
 			}
@@ -440,28 +475,32 @@ func GenerateLLVMIR(prog *Program) (*ir.Module, error) {
 
 // Helper function
 func blockHasTerminator(block *ir.Block) bool {
-	if block.Term == nil {
-		return false
-	}
-	return true
+	return block.Term != nil
 }
 
-func llvmTypeFromPrimitive(name string) types.Type {
-	switch name {
-	case PrimitiveB1:
-		return types.I1
-	case PrimitiveN32, PrimitiveZ32:
-		return types.I32
-	case PrimitiveN64, PrimitiveZ64:
-		return types.I64
-	case PrimitiveR32:
-		return types.Float
-	case PrimitiveR64:
-		return types.Double
-	case PrimitiveVoid:
-		return types.Void
+func llvmTypeFromPrimitive(typ Type) (types.Type, error) {
+	switch typ := typ.(type) {
+	case *PrimitiveType:
+		switch typ.Name {
+		case PrimitiveB1:
+			return types.I1, nil
+		case PrimitiveN32, PrimitiveZ32:
+			return types.I32, nil
+		case PrimitiveN64, PrimitiveZ64:
+			return types.I64, nil
+		case PrimitiveR32:
+			return types.Float, nil
+		case PrimitiveR64:
+			return types.Double, nil
+		case PrimitiveVoid:
+			return types.Void, nil
+		default:
+			return nil, fmt.Errorf("không xác định được kiểu dữ liệu nguyên thuỷ") // TODO: Make a proper error message
+		}
+	// TODO: Implement case *ContainerType:
+	// TODO: Implement case *StructType:
 	default:
-		panic("Không xác định được kiểu dữ liệu")
+		return nil, fmt.Errorf("không xác định được kiểu dữ liệu") // TODO: Make a proper error message
 	}
 }
 

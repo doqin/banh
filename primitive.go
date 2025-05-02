@@ -18,6 +18,12 @@ const (
 	PrimitiveS32  = "S32"
 )
 
+const (
+	ContainerArray   = "mảng"
+	ContainerMatrix  = "ma_trận"
+	ContainerHashMap = "bảng_băm"
+)
+
 var Primitives = map[string]string{
 	"B1":   PrimitiveB1,  // boolean
 	"N32":  PrimitiveN32, // unsigned int
@@ -35,4 +41,10 @@ var Primitives = map[string]string{
 	"S32":  PrimitiveS32, // String UTF-32
 	"dãy":  PrimitiveS32,
 	"rỗng": PrimitiveVoid,
+}
+
+var Containers = map[string]string{
+	"mảng":     ContainerArray,
+	"ma_trận":  ContainerMatrix,
+	"bảng_băm": ContainerHashMap,
 }

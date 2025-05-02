@@ -20,6 +20,8 @@ const (
 	UnknownExpression
 	InvalidIdentifierUsage
 	UnknownIdentifierType
+	InvalidCasting
+	ErrorBinaryExpr
 )
 
 var errorMessagesVi = map[ErrorID]string{
@@ -38,6 +40,8 @@ var errorMessagesVi = map[ErrorID]string{
 	UnknownExpression:      "Biểu thức không xác định.",
 	InvalidIdentifierUsage: "Không thể đánh giá được cách sử dụng ký hiệu '%v'.",
 	UnknownIdentifierType:  "Ký hiệu không xác định.",
+	InvalidCasting:         "Không thể chuyển kiểu '%v' sang kiểu '%v'.",
+	ErrorBinaryExpr:        "Gặp sự cố khi thực hiện phép so sánh giữa '%v' và '%v'",
 }
 
 type LangError struct {

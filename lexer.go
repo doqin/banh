@@ -94,18 +94,17 @@ func (l *Lexer) readKeywordOrIdentifier() Token {
 	if l.matchMultiWordKeyword("thủ", "tục") {
 		return Token{Type: TokenKeyword, Lexeme: KeywordThuTuc, Line: l.line, Column: col}
 	}
-	if l.matchMultiWordKeyword("lý", "luận") {
-		return Token{Type: TokenPrimitive, Lexeme: PrimitiveB1, Line: l.line, Column: col}
-	}
-	if l.matchMultiWordKeyword("ký", "tự") {
-		return Token{Type: TokenPrimitive, Lexeme: PrimitiveC32, Line: l.line, Column: col}
-	}
 
 	ident := l.readIdentifier()
 
 	// Exception for E
 	if ident == "E" {
 		return Token{Type: TokenOperator, Lexeme: SymbolMember, Line: l.line, Column: col}
+	}
+
+	// Handles primitive container types
+	if containerType, ok := Containers[ident]; ok {
+		return Token{Type: TokenContainer, Lexeme: containerType, Line: l.line, Column: col}
 	}
 
 	// Handle primitive types

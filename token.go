@@ -11,10 +11,14 @@ const (
 	TokenOperator  TokenType = "OPERATOR"
 	TokenLParen    TokenType = "LPAREN"
 	TokenRParen    TokenType = "RPAREN"
+	TokenLBrack    TokenType = "LBRACK"
+	TokenRBrack    TokenType = "RBRACK"
+	TokenDotDot    TokenType = "DOTDOT"
 	TokenComma     TokenType = "COMMA"
 	TokenSemiColon TokenType = "SEMICOLON"
 	TokenNewLine   TokenType = "NEWLINE"
 	TokenPrimitive TokenType = "PRIMITIVE"
+	TokenContainer TokenType = "CONTAINER"
 	TokenUnknown   TokenType = "UNKNOWN"
 )
 
@@ -38,8 +42,11 @@ var Operators = map[string]string{
 }
 
 var Symbols = map[string]TokenType{
-	"(": TokenLParen,
-	")": TokenRParen,
-	";": TokenSemiColon,
-	",": TokenComma,
+	"(":  TokenLParen,
+	")":  TokenRParen,
+	"[":  TokenLBrack,
+	"]":  TokenRBrack,
+	"..": TokenDotDot,
+	";":  TokenSemiColon,
+	",":  TokenComma,
 }

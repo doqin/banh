@@ -17,15 +17,6 @@ var precedences = map[string]int{
 	SymbolSlash:        100,
 }
 
-var defaultVal = map[string]string{
-	PrimitiveR64: "0.0",
-	PrimitiveR32: "0.0",
-	PrimitiveZ64: "0",
-	PrimitiveZ32: "0",
-	PrimitiveN64: "0",
-	PrimitiveN32: "0",
-}
-
 type Parser struct {
 	tokens  []Token
 	pos     int
@@ -75,20 +66,20 @@ func (p *Parser) ParseProgram() (*Program, error) {
 			p.nextToken()
 		}
 		switch p.current.Lexeme {
-			case KeywordHam:
-				fn, err := p.parseFunction()
-				if err != nil {
-					return nil, err
-				}
-				prog.Functions = append(prog.Functions, fn)
-			case KeywordThuTuc:
-				fn, err := p.parseProcedure()
-				if err != nil {
-					return nil, err
-				}
-				prog.Functions = append(prog.Functions, fn)
-			default:
-				return nil, NewLangError(UnexpectedToken, p.current.Lexeme).At(p.current.Line, p.current.Column)
+		case KeywordHam:
+			fn, err := p.parseFunction()
+			if err != nil {
+				return nil, err
+			}
+			prog.Functions = append(prog.Functions, fn)
+		case KeywordThuTuc:
+			fn, err := p.parseProcedure()
+			if err != nil {
+				return nil, err
+			}
+			prog.Functions = append(prog.Functions, fn)
+		default:
+			return nil, NewLangError(UnexpectedToken, p.current.Lexeme).At(p.current.Line, p.current.Column)
 		}
 
 		// Skip new lines
@@ -107,7 +98,6 @@ func (p *Parser) parseProcedure() (*Function, error) {
 	}
 	p.nextToken() // Consumes 'thủ tục'
 
-
 	// Expect function name (identifier)
 	if p.current.Type != TokenIdent {
 		return nil, NewLangError(ExpectToken, "tên hàm").At(p.current.Line, p.current.Column)
@@ -125,24 +115,12 @@ func (p *Parser) parseProcedure() (*Function, error) {
 	params := []*Variable{}
 	if p.current.Type != TokenRParen {
 		for {
-			if p.current.Type != TokenIdent {
-				return nil, NewLangError(WrongToken, "tên tham số", p.current.Lexeme).At(p.current.Line, p.current.Column)
-			}
 			line := p.current.Line
 			col := p.current.Column
-			paramName := p.current.Lexeme
-			p.nextToken()
-			if p.current.Type != TokenOperator || p.current.Lexeme != SymbolMember {
-				return nil, NewLangError(WrongToken, SymbolMember, p.current.Lexeme).At(p.current.Line, p.current.Column)
+			paramName, paramType, err := p.parseVarIdent()
+			if err != nil {
+				return nil, err
 			}
-			p.nextToken() // Consumes the 'E'
-
-			if p.current.Type != TokenPrimitive && p.current.Type != TokenIdent {
-				return nil, NewLangError(ExpectToken, "kiểu dữ liệu").At(p.current.Line, p.current.Column)
-			}
-			paramType := p.current.Lexeme
-			p.nextToken()
-
 			params = append(params, &Variable{Name: paramName, Type: paramType, Line: line, Column: col})
 
 			if p.current.Type == TokenComma {
@@ -174,7 +152,7 @@ func (p *Parser) parseProcedure() (*Function, error) {
 		// FIXME: Implement return statement without returning a value
 		st, ok := stmt.(*ReturnStmt)
 		if ok && st.Value != nil {
-			return nil, NewLangError(ReturnTypeMismatch, st.Value.GetType(), PrimitiveVoid)
+			return nil, NewLangError(ReturnTypeMismatch, getExprType(st.Value).String(), PrimitiveVoid)
 		}
 		body = append(body, stmt)
 		if p.current.Type != TokenNewLine && p.current.Type != TokenSemiColon {
@@ -195,7 +173,7 @@ func (p *Parser) parseProcedure() (*Function, error) {
 	return &Function{
 		Name:       fnName,
 		Parameters: params,
-		ReturnType: PrimitiveVoid,
+		ReturnType: &PrimitiveType{Name: PrimitiveVoid},
 		Body:       body,
 		Line:       line,
 		Column:     col,
@@ -226,24 +204,12 @@ func (p *Parser) parseFunction() (*Function, error) {
 	params := []*Variable{}
 	if p.current.Type != TokenRParen {
 		for {
-			if p.current.Type != TokenIdent {
-				return nil, NewLangError(WrongToken, "tên tham số", p.current.Lexeme).At(p.current.Line, p.current.Column)
-			}
 			line := p.current.Line
 			col := p.current.Column
-			paramName := p.current.Lexeme
-			p.nextToken()
-			if p.current.Type != TokenOperator || p.current.Lexeme != SymbolMember {
-				return nil, NewLangError(WrongToken, SymbolMember, p.current.Lexeme).At(p.current.Line, p.current.Column)
+			paramName, paramType, err := p.parseVarIdent()
+			if err != nil {
+				return nil, err
 			}
-			p.nextToken() // Consumes the 'E'
-
-			if p.current.Type != TokenPrimitive && p.current.Type != TokenIdent {
-				return nil, NewLangError(ExpectToken, "kiểu dữ liệu").At(p.current.Line, p.current.Column)
-			}
-			paramType := p.current.Lexeme
-			p.nextToken()
-
 			params = append(params, &Variable{Name: paramName, Type: paramType, Line: line, Column: col})
 
 			if p.current.Type == TokenComma {
@@ -266,8 +232,10 @@ func (p *Parser) parseFunction() (*Function, error) {
 	if p.current.Type != TokenIdent && p.current.Type != TokenPrimitive {
 		return nil, NewLangError(ExpectToken, "kiểu trả về").At(p.current.Line, p.current.Column)
 	}
-	returnType := p.current.Lexeme
-	p.nextToken() // Consumes the type
+	returnType, err := p.parseType()
+	if err != nil {
+		return nil, err
+	}
 
 	// Forces you to create a new line
 	if p.current.Type != TokenNewLine {
@@ -338,8 +306,8 @@ func (p *Parser) parseRegExpr() (Statement, error) {
 		return nil, err
 	}
 	return &RegExpr{
-		Expr: expr,
-		Line: line,
+		Expr:   expr,
+		Line:   line,
 		Column: col,
 	}, nil
 }
@@ -350,26 +318,11 @@ func (p *Parser) parseVarDecl() (Statement, error) {
 	// Consume 'biến'
 	p.nextToken()
 
-	// Expect identifier
-	if p.current.Type != TokenIdent {
-		return nil, NewLangError(ExpectToken, "tên biến").At(p.current.Line, p.current.Column)
+	varName, varType, err := p.parseVarIdent()
+	if err != nil {
+		return nil, err
 	}
-	varName := p.current.Lexeme
-	p.nextToken()
-
-	// Type declaration
-	// TODO: infer type annotation later
-	if p.current.Type != TokenOperator || p.current.Lexeme != SymbolMember {
-		return nil, NewLangError(WrongToken, SymbolMember, p.current.Lexeme).At(p.current.Line, p.current.Column)
-	}
-	p.nextToken() // Consumes "E"
-	if p.current.Type != TokenPrimitive && p.current.Type != TokenIdent {
-		return nil, NewLangError(ExpectToken, "kiểu dữ liệu").At(p.current.Line, p.current.Column)
-	}
-	varType := p.current.Lexeme
-	p.nextToken()
-
-	// optional: assignment
+	// Optional: assignment
 	// For example: ":= expression"
 	if p.current.Type == TokenOperator && p.current.Lexeme == SymbolAssign {
 		p.nextToken()
@@ -385,18 +338,113 @@ func (p *Parser) parseVarDecl() (Statement, error) {
 		}, nil
 	}
 
-	initializer, ok := defaultVal[varType]
-	if !ok {
-		initializer = "-1"
-	}
-	line, col = p.current.Line, p.current.Column
 	// No initializer found
 	return &VarDecl{
 		Var:    &Variable{Name: varName, Type: varType, Line: line, Column: col},
-		Value:  &NumberLiteral{Value: initializer, Type: varType, Line: line, Column: col},
+		Value:  &UninitializedExpr{Line: p.current.Line, Column: p.current.Column},
 		Line:   line,
 		Column: col,
 	}, nil
+}
+
+func (p *Parser) parseVarIdent() (string, Type, error) {
+	// Checks for identifier
+	if p.current.Type != TokenIdent {
+		// TODO: Change accordingly
+		return "", nil, NewLangError(WrongToken, "tên biến", p.current.Lexeme).At(p.current.Line, p.current.Column)
+	}
+	varName := p.current.Lexeme
+	p.nextToken()
+
+	if p.current.Type != TokenOperator || p.current.Lexeme != SymbolMember {
+		return "", nil, NewLangError(WrongToken, SymbolMember, p.current.Lexeme).At(p.current.Line, p.current.Column)
+	}
+	p.nextToken() // Consumes the 'E'
+
+	varType, err := p.parseType()
+	if err != nil {
+		return "", nil, err
+	}
+	return varName, varType, nil
+}
+
+func (p *Parser) parseType() (Type, error) {
+	switch p.current.Type {
+	case TokenPrimitive:
+		varType := &PrimitiveType{Name: p.current.Lexeme}
+		p.nextToken()
+		return varType, nil
+	case TokenIdent:
+		varType := &StructType{Name: p.current.Lexeme}
+		p.nextToken()
+		return varType, nil
+	case TokenContainer:
+		containerKind := p.current.Lexeme
+		p.nextToken()
+
+		// Get dimension from container type
+		var dimension int
+		switch containerKind {
+		case ContainerArray, ContainerHashMap:
+			dimension = 1
+		case ContainerMatrix:
+			dimension = 2
+		default:
+			return nil, NewLangError(ExpectToken, "kiểu dữ liệu").At(p.current.Line, p.current.Column)
+		}
+		var bounds []Expression
+
+		// Get the bounds
+		for range dimension {
+			if p.current.Type != TokenLBrack {
+				return nil, NewLangError(WrongToken, "[", p.current.Lexeme).At(p.current.Line, p.current.Column)
+			}
+			p.nextToken()
+			leftBound, err := p.parseExpression(0) // Get Left Bound
+			if err != nil {
+				return nil, err
+			}
+			// Handle left bound type
+			typeInterface := getExprType(leftBound)
+			typ, ok := typeInterface.(*PrimitiveType)
+			if (ok && typ.Name == PrimitiveR32 || typ.Name == PrimitiveR64) || !ok {
+				return nil, NewLangError(ExpectToken, "số tự nhiên hoặc số nguyên").At(p.current.Line, p.current.Column)
+			}
+			if p.current.Type != TokenDotDot {
+				return nil, NewLangError(WrongToken, "..", p.current.Lexeme).At(p.current.Line, p.current.Column)
+			}
+			p.nextToken()
+			rightBound, err := p.parseExpression(0) // Get Right Bound
+			if err != nil {
+				return nil, err
+			}
+			// Handle right bound type
+			typeInterface = getExprType(rightBound)
+			typ, ok = typeInterface.(*PrimitiveType)
+			if (ok && typ.Name == PrimitiveR32 || typ.Name == PrimitiveR64) || !ok {
+				return nil, NewLangError(ExpectToken, "số tự nhiên hoặc số nguyên").At(p.current.Line, p.current.Column)
+			}
+			// Close the range expression
+			if p.current.Type != TokenRBrack {
+				return nil, NewLangError(WrongToken, "]", p.current.Lexeme).At(p.current.Line, p.current.Column)
+			}
+			p.nextToken() // Consumes the ']'
+			bounds = append(bounds, leftBound)
+			bounds = append(bounds, rightBound)
+		}
+		if p.current.Type != TokenOperator || p.current.Lexeme != SymbolMember {
+			return nil, NewLangError(WrongToken, SymbolMember, p.current.Lexeme).At(p.current.Line, p.current.Column)
+		}
+		p.nextToken() // Consumes the 'E'
+		elementType, err := p.parseType()
+		if err != nil {
+			return nil, err
+		}
+		varType := &ContainerType{Kind: containerKind, ElementType: elementType, Dimensions: dimension, Bounds: bounds}
+		return varType, nil
+	default:
+		return nil, NewLangError(ExpectToken, "kiểu dữ liệu").At(p.current.Line, p.current.Column)
+	}
 }
 
 func (p *Parser) parseReturnStmt() (Statement, error) {
@@ -530,13 +578,13 @@ func (p *Parser) parseCallExpr() (Expression, error) {
 		}
 	}
 	p.nextToken() // Consumes ')'
-	return &CallExpr{Name: fnName, Arguments: arguments, ReturnType: "Unknown", Line: line, Column: column}, nil
+	return &CallExpr{Name: fnName, Arguments: arguments, ReturnType: &UnknownType{Name: "Unknown"}, Line: line, Column: column}, nil
 }
 
 func (p *Parser) parseExplicitCast() (Expression, error) {
 	line, column := p.current.Line, p.current.Column
-	castType := p.current.Lexeme
-	p.nextToken() // Consumes the type
+	castType := p.current.Lexeme // Primitive type
+	p.nextToken()                // Consumes the type
 	if p.current.Type != TokenLParen {
 		return nil, NewLangError(WrongToken, "(", p.current.Lexeme).At(p.current.Line, p.current.Column)
 	}
@@ -549,7 +597,7 @@ func (p *Parser) parseExplicitCast() (Expression, error) {
 		return nil, NewLangError(WrongToken, ")", p.current.Lexeme).At(p.current.Line, p.current.Column)
 	}
 	p.nextToken() // Consumes ')'
-	return &ExplicitCast{Type: castType, Argument: argument, Line: line, Column: column}, nil
+	return &ExplicitCast{Type: PrimitiveType{Name: castType}, Argument: argument, Line: line, Column: column}, nil
 }
 
 // TODO: Make more advanced expression parser
@@ -581,7 +629,7 @@ func (p *Parser) parseExpression(minPrec int) (Expression, error) {
 			Left:       left,
 			Operator:   op,
 			Right:      right,
-			ReturnType: "Unknown",
+			ReturnType: PrimitiveType{Name: "Unknown"}, // Placeholder
 			Line:       line,
 			Column:     col,
 		}
@@ -606,16 +654,16 @@ func (p *Parser) parsePrimary() (Expression, error) {
 			}
 			return call, nil
 		} else {
-			id := &Identifier{Name: p.current.Lexeme, Type: "Unknown", Line: p.current.Line, Column: p.current.Column}
+			id := &Identifier{Name: p.current.Lexeme, Type: &UnknownType{Name: "Unknown"}, Line: p.current.Line, Column: p.current.Column}
 			p.nextToken()
 			return id, nil
 		}
 	case TokenNumber:
 		var num *NumberLiteral
 		if strings.Contains(p.current.Lexeme, ".") == true {
-			num = &NumberLiteral{Value: p.current.Lexeme, Type: PrimitiveR64, Line: p.current.Line, Column: p.current.Column}
+			num = &NumberLiteral{Value: p.current.Lexeme, Type: PrimitiveType{Name: PrimitiveR64}, Line: p.current.Line, Column: p.current.Column}
 		} else {
-			num = &NumberLiteral{Value: p.current.Lexeme, Type: PrimitiveZ64, Line: p.current.Line, Column: p.current.Column}
+			num = &NumberLiteral{Value: p.current.Lexeme, Type: PrimitiveType{Name: PrimitiveZ64}, Line: p.current.Line, Column: p.current.Column}
 		}
 		p.nextToken()
 		return num, nil
@@ -643,4 +691,89 @@ func (p *Parser) currentPrecedence() int {
 		}
 	}
 	return -1
+}
+
+// Helper function
+func isTypeNumber_Expr(expr Expression) bool {
+	switch expr := expr.(type) {
+	case *NumberLiteral:
+		switch expr.Type.Name {
+		case PrimitiveN32, PrimitiveN64, PrimitiveZ32, PrimitiveZ64, PrimitiveR32, PrimitiveR64:
+			return true
+		default:
+			return false
+		}
+	case *BinaryExpr:
+		switch expr.ReturnType.Name {
+		case PrimitiveN32, PrimitiveN64, PrimitiveZ32, PrimitiveZ64, PrimitiveR32, PrimitiveR64:
+			return true
+		default:
+			return false
+		}
+	case *Identifier:
+		switch expr := expr.Type.(type) {
+		case *PrimitiveType:
+			switch expr.Name {
+			case PrimitiveN32, PrimitiveN64, PrimitiveZ32, PrimitiveZ64, PrimitiveR32, PrimitiveR64:
+				return true
+			default:
+				return false
+			}
+		default:
+			return false
+		}
+	case *CallExpr:
+		switch expr := expr.ReturnType.(type) {
+		case *PrimitiveType:
+			switch expr.Name {
+			case PrimitiveN32, PrimitiveN64, PrimitiveZ32, PrimitiveZ64, PrimitiveR32, PrimitiveR64:
+				return true
+			default:
+				return false
+			}
+		default:
+			return false
+		}
+	case *ExplicitCast:
+		switch expr.Type.Name {
+		case PrimitiveN32, PrimitiveN64, PrimitiveZ32, PrimitiveZ64, PrimitiveR32, PrimitiveR64:
+			return true
+		default:
+			return false
+		}
+	default:
+		return false
+	}
+}
+
+func isTypeNumber_Type(typ Type) bool {
+	switch typ := typ.(type) {
+	case *PrimitiveType:
+		switch typ.Name {
+		case PrimitiveN32, PrimitiveN64, PrimitiveZ32, PrimitiveZ64, PrimitiveR32, PrimitiveR64:
+			return true
+		default:
+			return false
+		}
+	default:
+		return false
+	}
+}
+
+// Helper function
+func getExprType(expr Expression) Type {
+	switch e := expr.(type) {
+	case *Identifier:
+		return e.Type
+	case *NumberLiteral:
+		return &e.Type
+	case *BinaryExpr:
+		return &e.ReturnType
+	case *CallExpr:
+		return e.ReturnType
+	case *ExplicitCast:
+		return &e.Type
+	default:
+		return &UnknownType{Name: "Unknown"}
+	}
 }

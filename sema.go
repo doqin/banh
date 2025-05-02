@@ -2,8 +2,10 @@ package main
 
 import (
 	"fmt"
-	"strings"
+	"reflect"
 )
+
+// TODO: Handle default values
 
 // Scope represents a symbol table with optional parent scoping
 type Scope struct {
@@ -99,8 +101,8 @@ func (tc *TypeChecker) InitializeBuiltins() error {
 	// Define the print function signature: in(tuỳ) -> rỗng
 	printFn := &Function{
 		Name:       "in",
-		Parameters: []*Variable{{Name: "giá_trị", Type: PrimitiveAny}},
-		ReturnType: PrimitiveVoid,
+		Parameters: []*Variable{{Name: "giá_trị", Type: &PrimitiveType{Name: PrimitiveAny}}},
+		ReturnType: &PrimitiveType{Name: PrimitiveZ32},
 		Line:       0,
 		Column:     0,
 	}
@@ -134,7 +136,7 @@ func (tc *TypeChecker) AnalyzeFunction(fn *Function) error {
 	return nil
 }
 
-func (tc *TypeChecker) AnalyzeStatement(stmt Statement, expectedReturnType string) error {
+func (tc *TypeChecker) AnalyzeStatement(stmt Statement, expectedReturnType Type) error {
 	switch s := stmt.(type) {
 	case *VarDecl:
 		err := tc.AnalyzeExpression(s.Value)
@@ -143,10 +145,10 @@ func (tc *TypeChecker) AnalyzeStatement(stmt Statement, expectedReturnType strin
 		}
 		valType := tc.getExprType(s.Value)
 
-		if valType != s.Var.Type && isLiteral(s.Value) {
+		if isSameTypeAndName(valType, s.Var.Type) && isLiteral(s.Value) {
 			if !canLiteralCast(valType, s.Var.Type) {
 				line, col := s.Pos()
-				return NewLangError(TypeMismatch, valType, s.Var.Type).At(line, col)
+				return NewLangError(TypeMismatch, valType.String(), s.Var.Type.String()).At(line, col)
 			}
 			valType = s.Var.Type
 		}
@@ -255,7 +257,7 @@ func (tc *TypeChecker) AnalyzeExplicitCast(e *ExplicitCast) error {
 		return err
 	}
 	exprType := tc.getExprType(e.Argument)
-	if !canExplicitCast(exprType, castType) {
+	if !canExplicitCast(exprType, &castType) {
 		return fmt.Errorf("[Dòng %d, Cột %d] Không thể chuyển kiểu '%s' sang kiểu '%s'", e.Line, e.Column, exprType, castType)
 	}
 	// castExpr(e.Argument, castType)
@@ -274,7 +276,7 @@ func (tc *TypeChecker) AnalyzeIdentifier(i *Identifier) error {
 		i.Type = typ.Type
 		return nil
 	case *Function:
-		//FIXME: Handle function name clashing with variable name
+		// FIXME: Handle function name clashing with variable name
 		// Rather important
 		line, col := i.Pos()
 		return NewLangError(InvalidIdentifierUsage, i.Name).At(line, col)
@@ -295,20 +297,26 @@ func (tc *TypeChecker) AnalyzeBinaryExpr(b *BinaryExpr) error {
 	}
 	leftType := tc.getExprType(b.Left)
 	rightType := tc.getExprType(b.Right)
+	leftTyp, ok1 := leftType.(*PrimitiveType)
+	rightTyp, ok2 := rightType.(*PrimitiveType)
+	if !ok1 || !ok2 {
+		return NewLangError(ExpectToken, "kiểu dữ liệu nguyên thuỷ").At(b.Line, b.Column)
+	}
 
 	if b.Operator == KeywordVa || b.Operator == KeywordHoac {
-		if leftType != PrimitiveB1 {
-			return NewLangError(TypeMismatch, leftType, PrimitiveB1).At(b.Line, b.Column)
+
+		if leftTyp.Name != PrimitiveB1 {
+			return NewLangError(TypeMismatch, leftTyp.Name, PrimitiveB1).At(b.Line, b.Column)
 		}
-		if rightType != PrimitiveB1 {
-			return NewLangError(TypeMismatch, rightType, PrimitiveB1).At(b.Line, b.Column)
+		if rightTyp.Name != PrimitiveB1 {
+			return NewLangError(TypeMismatch, rightTyp.Name, PrimitiveB1).At(b.Line, b.Column)
 		}
-		b.ReturnType = PrimitiveB1
+		b.ReturnType.Name = PrimitiveB1
 		return nil
 	}
 
-	if leftType == rightType {
-		b.ReturnType = leftType
+	if leftTyp.Name == rightTyp.Name {
+		b.ReturnType.Name = leftTyp.Name
 		return nil
 	}
 
@@ -317,13 +325,13 @@ func (tc *TypeChecker) AnalyzeBinaryExpr(b *BinaryExpr) error {
 			return NewLangError(TypeMismatch, leftType, rightType).At(b.Line, b.Column)
 		}
 		castExpr(b.Left, rightType)
-		leftType = rightType
+		leftTyp.Name = rightTyp.Name
 	} else if !isLiteral(b.Left) && isLiteral(b.Right) {
 		if !canLiteralCast(rightType, leftType) {
 			return NewLangError(TypeMismatch, rightType, leftType).At(b.Line, b.Column)
 		}
 		castExpr(b.Right, leftType)
-		rightType = leftType
+		rightTyp.Name = leftTyp.Name
 	}
 
 	// If both are same type, result is that type
@@ -333,10 +341,10 @@ func (tc *TypeChecker) AnalyzeBinaryExpr(b *BinaryExpr) error {
 
 	switch b.Operator {
 	case SymbolLess, SymbolLessEqual, SymbolGreater, SymbolGreaterEqual, SymbolEqual, SymbolNotEqual:
-		b.ReturnType = PrimitiveB1
+		b.ReturnType.Name = PrimitiveB1
 		return nil
 	default:
-		b.ReturnType = leftType
+		b.ReturnType.Name = leftTyp.Name
 		return nil
 	}
 }
@@ -371,7 +379,7 @@ func (tc *TypeChecker) AnalyzeCallExpr(c *CallExpr) error {
 		}
 		argType := tc.getExprType(arg)
 		paramType := fn.Parameters[i].Type
-		if argType == paramType || paramType == PrimitiveAny {
+		if isSameTypeAndName(argType, paramType) || paramType.String() == PrimitiveAny {
 			continue
 		}
 
@@ -396,7 +404,7 @@ func (tc *TypeChecker) AnalyzeCallExpr(c *CallExpr) error {
 }
 
 // Helper
-func (tc *TypeChecker) getExprType(expr Expression) string {
+func (tc *TypeChecker) getExprType(expr Expression) Type {
 	switch e := expr.(type) {
 	case *Identifier:
 		v, found := tc.CurrentScope.Resolve(e.Name)
@@ -415,15 +423,15 @@ func (tc *TypeChecker) getExprType(expr Expression) string {
 
 		// Fallthrough if not found
 	case *NumberLiteral:
-		return e.Type
+		return &e.Type
 	case *BinaryExpr:
-		return e.ReturnType
+		return &e.ReturnType
 	case *CallExpr:
 		return e.ReturnType
 	case *ExplicitCast:
-		return e.Type
+		return &e.Type
 	default:
-		return "Unknown"
+		return &UnknownType{Name: "Unknown"}
 	}
 }
 
@@ -438,10 +446,22 @@ func isLiteral(expr Expression) bool {
 	}
 }
 
-func canExplicitCast(fromType, toType string) bool {
-	switch fromType {
+// Handles explicit casting of primitive types
+func canExplicitCast(fromType, toType Type) bool {
+	if isSameTypeAndName(fromType, toType) {
+		return true
+	}
+
+	fromTyp, ok1 := fromType.(*PrimitiveType)
+	toTyp, ok2 := toType.(*PrimitiveType)
+
+	if !ok1 || !ok2 {
+		return false
+	}
+
+	switch fromTyp.Name {
 	case PrimitiveR64, PrimitiveR32, PrimitiveZ64, PrimitiveZ32, PrimitiveN64, PrimitiveN32:
-		switch toType {
+		switch toTyp.Name {
 		case PrimitiveR64, PrimitiveR32, PrimitiveZ64, PrimitiveZ32, PrimitiveN64, PrimitiveN32:
 			return true
 		default:
@@ -452,17 +472,24 @@ func canExplicitCast(fromType, toType string) bool {
 	}
 }
 
-func canLiteralCast(fromType, toType string) bool {
-	switch fromType {
+func canLiteralCast(fromType, toType Type) bool {
+	fromTyp, ok1 := fromType.(*PrimitiveType)
+	toTyp, ok2 := toType.(*PrimitiveType)
+
+	if !ok1 || !ok2 {
+		return false
+	}
+
+	switch fromTyp.Name {
 	case PrimitiveR64:
-		switch toType {
+		switch toTyp.Name {
 		case PrimitiveR64, PrimitiveR32:
 			return true
 		default:
 			return false
 		}
 	case PrimitiveZ64:
-		switch toType {
+		switch toTyp.Name {
 		case PrimitiveZ64, PrimitiveZ32, PrimitiveN64, PrimitiveN32:
 			return true
 		default:
@@ -474,49 +501,58 @@ func canLiteralCast(fromType, toType string) bool {
 }
 
 // Secretly cast to widen a type if possible
-func canImplicitCast(fromType, toType string) bool {
-	if fromType == toType {
+func canImplicitCast(fromType, toType Type) bool {
+	if isSameTypeAndName(fromType, toType) {
 		return true
 	}
 
-	switch fromType {
+	fromTyp, ok1 := fromType.(*PrimitiveType)
+	toTyp, ok2 := toType.(*PrimitiveType)
+
+	if !ok1 || !ok2 {
+		return false
+	}
+	fromTypName := fromTyp.Name
+	toTypName := toTyp.Name
+
+	switch fromTypName {
 	case PrimitiveR64:
-		switch toType {
+		switch toTypName {
 		case PrimitiveR64: // Safe
 			return true
 		default:
 			return false
 		}
 	case PrimitiveR32:
-		switch toType {
+		switch toTypName {
 		case PrimitiveR32, PrimitiveR64:
 			return true
 		default:
 			return false
 		}
 	case PrimitiveZ64:
-		switch toType {
+		switch toTypName {
 		case PrimitiveZ64:
 			return true
 		default:
 			return false
 		}
 	case PrimitiveZ32:
-		switch toType {
+		switch toTypName {
 		case PrimitiveZ32, PrimitiveZ64:
 			return true
 		default:
 			return false
 		}
 	case PrimitiveN64:
-		switch toType {
+		switch toTypName {
 		case PrimitiveN64:
 			return true
 		default:
 			return false
 		}
 	case PrimitiveN32:
-		switch toType {
+		switch toTypName {
 		case PrimitiveN32, PrimitiveN64:
 			return true
 		default:
@@ -527,22 +563,44 @@ func canImplicitCast(fromType, toType string) bool {
 	}
 }
 
-func castExpr(expr Expression, toType string) {
+func castExpr(expr Expression, toType Type) error {
 	switch e := expr.(type) {
 	case *Identifier:
 		e.Type = toType
+		return nil
 	case *NumberLiteral:
-		e.Type = toType
+		toTyp, ok := toType.(*PrimitiveType)
+		if !ok || !isTypeNumber_Type(toTyp) {
+			return NewLangError(InvalidCasting, e.Type, toType).At(e.Line, e.Column)
+		}
+		e.Type.Name = toTyp.Name
+		return nil
 	case *BinaryExpr:
 		castExpr(e.Left, toType)
 		castExpr(e.Right, toType)
-		e.ReturnType = toType
+		toTyp, ok := toType.(*PrimitiveType)
+		if !ok || !isTypeNumber_Type(toTyp) {
+			return NewLangError(InvalidCasting, e.ReturnType, toType).At(e.Line, e.Column)
+		}
+		e.ReturnType.Name = toTyp.Name
+		return nil
 	case *CallExpr:
 		e.ReturnType = toType
+		return nil
 	default:
+		line, col := expr.Pos()
+		return NewLangError(InvalidCasting, getExprType(expr), toType).At(line, col)
 	}
 }
 
+func isSameTypeAndName(a, b Type) bool {
+	if reflect.TypeOf(a) != reflect.TypeOf(b) {
+		return false
+	}
+	return a.String() == b.String()
+}
+
+/*
 // Turns floating point numbers like "1.0" to "1"
 func truncanteFloatString(s string) string {
 	if dot := strings.Index(s, "."); dot != -1 {
@@ -550,3 +608,4 @@ func truncanteFloatString(s string) string {
 	}
 	return s
 }
+*/
