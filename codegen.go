@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 
@@ -24,7 +25,7 @@ func (fn *Function) Codegen(ctx *CodegenContext) (*ir.Func, error) {
 	// Handle params
 	params := make([]*ir.Param, len(fn.Parameters))
 	for i, param := range fn.Parameters {
-		paramType, err := llvmTypeFromPrimitive(param.Type)
+		paramType, err := llvmTypeFromType(param.Type, ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -35,13 +36,13 @@ func (fn *Function) Codegen(ctx *CodegenContext) (*ir.Func, error) {
 		if !isSameTypeAndName(fn.ReturnType, &PrimitiveType{Name: PrimitiveZ32}) {
 			return nil, NewLangError(ReturnTypeMismatch, fn.ReturnType, PrimitiveZ32).At(fn.Line, fn.Column)
 		}
-		returnType, err := llvmTypeFromPrimitive(fn.ReturnType)
+		returnType, err := llvmTypeFromType(fn.ReturnType, ctx)
 		if err != nil {
 			return nil, err
 		}
 		fnIR = ctx.Module.NewFunc("main", returnType, params...)
 	} else {
-		returnType, err := llvmTypeFromPrimitive(fn.ReturnType)
+		returnType, err := llvmTypeFromType(fn.ReturnType, ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -73,16 +74,12 @@ func (fn *Function) Codegen(ctx *CodegenContext) (*ir.Func, error) {
 		switch fnIR.Sig.RetType {
 		case types.I32:
 			ctx.Block.NewRet(constant.NewInt(types.I32, 0))
-			break
 		case types.I64:
 			ctx.Block.NewRet(constant.NewInt(types.I64, 0))
-			break
 		case types.Double:
 			ctx.Block.NewRet(constant.NewFloat(types.Double, 0))
-			break
 		case types.Void: // Is this necessary lol?
 			ctx.Block.NewRet(nil)
-			break
 		}
 	}
 	return fnIR, nil
@@ -99,7 +96,7 @@ func (r *RegExpr) Codegen(ctx *CodegenContext) (value.Value, error) {
 func (v *VarDecl) Codegen(ctx *CodegenContext) (value.Value, error) {
 	entryBlock := ctx.Func.Blocks[0]
 	// Allocate space for variable in entry block
-	varType, err := llvmTypeFromPrimitive(v.Var.Type)
+	varType, err := llvmTypeFromType(v.Var.Type, ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -240,7 +237,67 @@ func (s *StructLiteral) Codegen(ctx *CodegenContext) (value.Value, error) {
 
 // TODO: Implement the array literal codegen
 func (a *ArrayLiteral) Codegen(ctx *CodegenContext) (value.Value, error) {
-	return nil, nil
+	containerType, ok := a.Type.(*ContainerType)
+	if !ok {
+		// Most likely won't happen but still check
+		return nil, NewLangError(TypeMismatch, a.Type.String(), "kiểu thùng chứa đựng (mảng)")
+	}
+
+	/*
+		// Assuming all the elements have already type-checked to the same Type (hopefully)
+		elemType, err := llvmTypeFromType(containerType.ElementType, ctx)
+		if err != nil {
+			return nil, err
+		}
+	*/
+
+	// Extract user-defined bounds
+	if len(containerType.Bounds) != 2 {
+		line, col := a.Pos()
+		return nil, fmt.Errorf("[Dòng %d, Cột %d] mảng phải có đúng 2 giới hạn (sàn và trần) thay vì %d", line, col, len(containerType.Bounds)) // TODO: Make a new error type
+	}
+
+	lowerBoundVal, err := containerType.Bounds[0].Codegen(ctx)
+	if err != nil {
+		return nil, err
+	}
+	upperBoundVal, err := containerType.Bounds[1].Codegen(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	lowerConst, lok := lowerBoundVal.(*constant.Int)
+	upperConst, uok := upperBoundVal.(*constant.Int)
+	if !lok || !uok {
+		return nil, errors.New("giới hạn mảng phải là số nguyên")
+	}
+
+	lowerBound := lowerConst.X.Int64()
+	upperBound := upperConst.X.Int64()
+	if lowerBound > upperBound {
+		return nil, fmt.Errorf("giới hạn sàn (%d) cao hơn giới hạn trần (%d)", lowerBound, upperBound)
+	}
+
+	n := upperBound - lowerBound + 1
+	if int64(len(a.Elements)) != n {
+		return nil, fmt.Errorf("mong đợi %d phần tử cho giới hạn [%d..%d], được %d", n, lowerBound, upperBound, len(a.Elements))
+	}
+
+	values := make([]constant.Constant, len(a.Elements))
+	for i, elem := range a.Elements {
+		val, err := elem.Codegen(ctx)
+		if err != nil {
+			return nil, err
+		}
+		constVal, ok := val.(constant.Constant)
+		if !ok {
+			line, col := a.Pos()
+			return nil, fmt.Errorf("[Dòng %d, Cột %d]Phần tử của mảng phải là hằng số", line, col)
+		}
+		values[i] = constVal
+	}
+
+	return constant.NewArray(values...), nil
 }
 
 func (b *BinaryExpr) Codegen(ctx *CodegenContext) (value.Value, error) {
@@ -391,7 +448,7 @@ func (e *ExplicitCast) Codegen(ctx *CodegenContext) (value.Value, error) {
 		return nil, err
 	}
 
-	targetType, err := llvmTypeFromPrimitive(&e.Type)
+	targetType, err := llvmTypeFromType(&e.Type, ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -476,6 +533,49 @@ func GenerateLLVMIR(prog *Program) (*ir.Module, error) {
 // Helper function
 func blockHasTerminator(block *ir.Block) bool {
 	return block.Term != nil
+}
+
+func llvmTypeFromType(typ Type, ctx *CodegenContext) (types.Type, error) {
+	switch typ := typ.(type) {
+	case *PrimitiveType:
+		return llvmTypeFromPrimitive(typ)
+	case *ContainerType:
+		elemType, err := llvmTypeFromType(typ.ElementType, ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		// Only supports regular array for now
+		if len(typ.Bounds) != 2 {
+			return nil, errors.New("mảng phải có đúng 2 giới hạn (sàn và trần)")
+		}
+
+		lowerBoundVal, err := typ.Bounds[0].Codegen(ctx)
+		if err != nil {
+			return nil, err
+		}
+		upperBoundVal, err := typ.Bounds[1].Codegen(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		lowerConst, lok := lowerBoundVal.(*constant.Int)
+		upperConst, uok := upperBoundVal.(*constant.Int)
+		if !lok || !uok {
+			return nil, errors.New("giới hạn mảng phải là số nguyên")
+		}
+
+		lowerBound := lowerConst.X.Int64()
+		upperBound := upperConst.X.Int64()
+		if lowerBound > upperBound {
+			return nil, fmt.Errorf("giới hạn sàn (%d) cao hơn giới hạn trần (%d)", lowerBound, upperBound)
+		}
+
+		length := upperBound - lowerBound + 1
+		return types.NewArray(uint64(length), elemType), nil
+	default:
+		return nil, NewLangError(TypeMismatch, typ.String(), "kiểu được LLVM hỗ trợ")
+	}
 }
 
 func llvmTypeFromPrimitive(typ Type) (types.Type, error) {

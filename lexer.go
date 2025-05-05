@@ -169,7 +169,6 @@ func (l *Lexer) readMultiCharSymbol(ch rune) *Token {
 			l.readChar() // Consumes '>'
 			return &Token{Type: TokenOperator, Lexeme: SymbolArrow, Line: l.line, Column: col}
 		}
-		break
 	case '<':
 		if l.peek() == '=' {
 			l.readChar()
@@ -194,6 +193,12 @@ func (l *Lexer) readMultiCharSymbol(ch rune) *Token {
 			l.readChar()
 			return &Token{Type: TokenOperator, Lexeme: SymbolNotEqual, Line: l.line, Column: col}
 		}
+	case '.':
+		if l.peek() == '.' {
+			l.readChar()
+			l.readChar()
+			return &Token{Type: TokenOperator, Lexeme: SymbolDotDot, Line: l.line, Column: col}
+		}
 	}
 	return nil
 }
@@ -217,6 +222,9 @@ func (l *Lexer) readNumber() string {
 	}
 	for l.pos < len(l.input) && (unicode.IsDigit(l.input[l.pos]) || (l.input[l.pos] == '.' && !isFloat)) {
 		if l.input[l.pos] == '.' {
+			if !unicode.IsDigit(l.peek()) {
+				return string(l.input[start:l.pos])
+			}
 			isFloat = true
 		}
 		l.pos++

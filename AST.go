@@ -33,9 +33,10 @@ type PrimitiveType struct {
 func (p *PrimitiveType) String() string    { return p.Name }
 func (p *PrimitiveType) IsPrimitive() bool { return true }
 
-// TODO: Later implemented
 type StructType struct {
-	Name string
+	Name   string
+	Fields map[string]Type
+	Order  []string
 }
 
 func (s *StructType) String() string    { return s.Name }
@@ -56,7 +57,9 @@ func (c *ContainerType) String() string {
 func (c *ContainerType) IsPrimitive() bool { return false }
 
 type Program struct {
+	Globals   []*Variable
 	Functions []*Function
+	Structs   []*StructDecl
 }
 
 type Function struct {
@@ -69,6 +72,24 @@ type Function struct {
 }
 
 func (f *Function) Pos() (int, int) { return f.Line, f.Column }
+
+type StructDecl struct {
+	Name   string
+	Fields []*StructField
+	Line   int
+	Column int
+}
+
+func (s *StructDecl) Pos() (int, int) { return s.Line, s.Column }
+
+type StructField struct {
+	Name   string
+	Type   Type
+	Line   int
+	Column int
+}
+
+func (s *StructField) Pos() (int, int) { return s.Line, s.Column }
 
 type Variable struct {
 	Name   string
@@ -172,6 +193,7 @@ func (s *StructLiteral) Pos() (int, int) { return s.Line, s.Column }
 
 type ArrayLiteral struct {
 	Elements []Expression
+	Type     Type
 	Line     int
 	Column   int
 }

@@ -16,4 +16,5 @@ const (
 	SymbolLessEqual    = "<="
 	SymbolGreaterEqual = ">="
 	SymbolNotEqual     = "!="
+	SymbolDotDot       = ".."
 )

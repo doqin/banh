@@ -40,7 +40,7 @@ func (s *Scope) Declare(name string, v any) error {
 		s.Functions[name] = typ
 		return nil
 	default:
-		return fmt.Errorf("Câu lệnh khai báo không xác định")
+		return fmt.Errorf("câu lệnh khai báo không xác định")
 	}
 }
 
@@ -136,6 +136,8 @@ func (tc *TypeChecker) AnalyzeFunction(fn *Function) error {
 	return nil
 }
 
+// FIXME: Fix the binary expression casting error
+
 func (tc *TypeChecker) AnalyzeStatement(stmt Statement, expectedReturnType Type) error {
 	switch s := stmt.(type) {
 	case *VarDecl:
@@ -143,21 +145,11 @@ func (tc *TypeChecker) AnalyzeStatement(stmt Statement, expectedReturnType Type)
 		if err != nil {
 			return err
 		}
-		valType := tc.getExprType(s.Value)
-
-		if isSameTypeAndName(valType, s.Var.Type) && isLiteral(s.Value) {
-			if !canLiteralCast(valType, s.Var.Type) {
-				line, col := s.Pos()
-				return NewLangError(TypeMismatch, valType.String(), s.Var.Type.String()).At(line, col)
-			}
-			valType = s.Var.Type
+		err = tc.AnalyzeType(s.Var.Type, s.Value)
+		if err != nil {
+			return err
 		}
-
-		if valType != s.Var.Type && !canImplicitCast(valType, s.Var.Type) {
-			line, col := s.Pos()
-			return NewLangError(TypeMismatch, valType, s.Var.Type).At(line, col)
-		}
-		castExpr(s.Value, s.Var.Type)
+		// Declare variable
 		err = tc.CurrentScope.Declare(s.Var.Name, s.Var)
 		if err != nil {
 			return err
@@ -168,21 +160,10 @@ func (tc *TypeChecker) AnalyzeStatement(stmt Statement, expectedReturnType Type)
 		if err != nil {
 			return err
 		}
-		valType := tc.getExprType(s.Value)
-
-		if valType != expectedReturnType && isLiteral(s.Value) {
-			if !canLiteralCast(valType, expectedReturnType) {
-				line, col := s.Pos()
-				return NewLangError(ReturnTypeMismatch, valType, expectedReturnType).At(line, col)
-			}
-			valType = expectedReturnType
+		err = tc.AnalyzeType(expectedReturnType, s.Value)
+		if err != nil {
+			return err
 		}
-
-		if valType != expectedReturnType && !canImplicitCast(valType, expectedReturnType) {
-			line, col := s.Pos()
-			return NewLangError(ReturnTypeMismatch, valType, expectedReturnType).At(line, col)
-		}
-		castExpr(s.Value, expectedReturnType)
 		return nil
 	case *IfStmt:
 		err := tc.AnalyzeExpression(s.Condition)
@@ -211,8 +192,61 @@ func (tc *TypeChecker) AnalyzeStatement(stmt Statement, expectedReturnType Type)
 		}
 		return nil
 	default:
-		return fmt.Errorf("Câu lệnh không xác định")
+		return fmt.Errorf("câu lệnh không xác định")
 	}
+}
+
+func (tc *TypeChecker) AnalyzeType(checker Type, checked Expression) error {
+	checkedType := tc.getExprType(checked)
+	// If is same type then ok
+	if isSameTypeAndName(checker, checkedType) {
+		return nil
+	}
+
+	chcker, ok1 := checker.(*ContainerType)
+	_, ok2 := checkedType.(*ContainerType)
+
+	// If both are containers
+	if ok1 && ok2 {
+		checked, ok := checked.(*ArrayLiteral)
+		// If expression is not of array literal then you can't implicit cast
+		if !ok {
+			line, col := checked.Pos()
+			return NewLangError(TypeMismatch, checkedType.String(), checker.String()).At(line, col)
+		}
+		// Check type and cast for each elements
+		for _, elem := range checked.Elements {
+			err := tc.AnalyzeType(chcker.ElementType, elem)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	// If one of them is container
+	if ok1 || ok2 {
+		line, col := checked.Pos()
+		return NewLangError(TypeMismatch, checkedType.String(), chcker.String()).At(line, col)
+	}
+
+	// Handle if initializer is a literal
+	if isLiteral(checked) {
+		if !canLiteralCast(checkedType, checker) {
+			line, col := checked.Pos()
+			return NewLangError(TypeMismatch, checkedType.String(), checker.String()).At(line, col)
+		}
+	} else if !canImplicitCast(checkedType, checker) { // Handle if a type can be widen
+		line, col := checked.Pos()
+		return NewLangError(TypeMismatch, checkedType.String(), checker.String()).At(line, col)
+	}
+
+	// Finally cast after safty causions
+	err := castExpr(checked, checker)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (tc *TypeChecker) AnalyzeExpression(expr Expression) error {
@@ -244,10 +278,59 @@ func (tc *TypeChecker) AnalyzeExpression(expr Expression) error {
 			return err
 		}
 		return nil
+	case *ArrayLiteral:
+		err := tc.AnalyzeArrayLiteral(e)
+		if err != nil {
+			return err
+		}
+		return nil
 	default:
 		line, col := e.Pos()
 		return NewLangError(UnknownExpression).At(line, col)
 	}
+}
+
+func (tc *TypeChecker) AnalyzeArrayLiteral(a *ArrayLiteral) error {
+	// TODO: Implement it
+	if len(a.Elements) == 0 {
+		a.Type = &ContainerType{Kind: ContainerArray, ElementType: &PrimitiveType{Name: PrimitiveAny}}
+		return nil
+	}
+
+	var inferredType Type
+	for i, elem := range a.Elements {
+		err := tc.AnalyzeExpression(elem)
+		if err != nil {
+			return err
+		}
+
+		elemType := tc.getExprType(elem)
+		if i == 0 {
+			inferredType = elemType
+			continue
+		}
+
+		if isLiteral(elem) && canLiteralCast(elemType, inferredType) {
+			err := castExpr(elem, inferredType)
+			if err != nil {
+				return err
+			}
+			continue
+		}
+
+		if !isSameTypeAndName(elemType, inferredType) && !canImplicitCast(elemType, inferredType) {
+			line, col := elem.Pos()
+			return NewLangError(TypeMismatch, elemType.String(), inferredType.String()).At(line, col)
+		}
+	}
+
+	a.Type = &ContainerType{
+		Kind:        ContainerArray,
+		ElementType: inferredType,
+		Bounds: []Expression{
+			&NumberLiteral{Value: "0", Type: PrimitiveType{Name: PrimitiveZ64}},
+			&NumberLiteral{Value: fmt.Sprintf("%d", len(a.Elements)-1), Type: PrimitiveType{Name: PrimitiveZ64}}}}
+	return nil
 }
 
 func (tc *TypeChecker) AnalyzeExplicitCast(e *ExplicitCast) error {
@@ -306,10 +389,10 @@ func (tc *TypeChecker) AnalyzeBinaryExpr(b *BinaryExpr) error {
 	if b.Operator == KeywordVa || b.Operator == KeywordHoac {
 
 		if leftTyp.Name != PrimitiveB1 {
-			return NewLangError(TypeMismatch, leftTyp.Name, PrimitiveB1).At(b.Line, b.Column)
+			return NewLangError(ErrorBinaryExpr, leftTyp.Name, PrimitiveB1).At(b.Line, b.Column)
 		}
 		if rightTyp.Name != PrimitiveB1 {
-			return NewLangError(TypeMismatch, rightTyp.Name, PrimitiveB1).At(b.Line, b.Column)
+			return NewLangError(ErrorBinaryExpr, rightTyp.Name, PrimitiveB1).At(b.Line, b.Column)
 		}
 		b.ReturnType.Name = PrimitiveB1
 		return nil
@@ -322,21 +405,20 @@ func (tc *TypeChecker) AnalyzeBinaryExpr(b *BinaryExpr) error {
 
 	if isLiteral(b.Left) && !isLiteral(b.Right) {
 		if !canLiteralCast(leftType, rightType) {
-			return NewLangError(TypeMismatch, leftType, rightType).At(b.Line, b.Column)
+			return NewLangError(ErrorBinaryExpr, leftType, rightType).At(b.Line, b.Column)
 		}
 		castExpr(b.Left, rightType)
 		leftTyp.Name = rightTyp.Name
 	} else if !isLiteral(b.Left) && isLiteral(b.Right) {
 		if !canLiteralCast(rightType, leftType) {
-			return NewLangError(TypeMismatch, rightType, leftType).At(b.Line, b.Column)
+			return NewLangError(ErrorBinaryExpr, rightType, leftType).At(b.Line, b.Column)
 		}
 		castExpr(b.Right, leftType)
 		rightTyp.Name = leftTyp.Name
 	}
 
-	// If both are same type, result is that type
 	if leftType != rightType && !canImplicitCast(rightType, leftType) {
-		return NewLangError(TypeMismatch, rightType, leftType).At(b.Line, b.Column)
+		return NewLangError(ErrorBinaryExpr, rightType, leftType).At(b.Line, b.Column)
 	}
 
 	switch b.Operator {
@@ -430,6 +512,8 @@ func (tc *TypeChecker) getExprType(expr Expression) Type {
 		return e.ReturnType
 	case *ExplicitCast:
 		return &e.Type
+	case *ArrayLiteral:
+		return e.Type
 	default:
 		return &UnknownType{Name: "Unknown"}
 	}
@@ -510,7 +594,12 @@ func canImplicitCast(fromType, toType Type) bool {
 	toTyp, ok2 := toType.(*PrimitiveType)
 
 	if !ok1 || !ok2 {
-		return false
+		fromTyp, ok3 := fromType.(*ContainerType)
+		toTyp, ok4 := toType.(*ContainerType)
+		if !ok3 || !ok4 {
+			return false
+		}
+		return canImplicitCast(fromTyp.ElementType, toTyp.ElementType)
 	}
 	fromTypName := fromTyp.Name
 	toTypName := toTyp.Name
@@ -576,8 +665,14 @@ func castExpr(expr Expression, toType Type) error {
 		e.Type.Name = toTyp.Name
 		return nil
 	case *BinaryExpr:
-		castExpr(e.Left, toType)
-		castExpr(e.Right, toType)
+		err := castExpr(e.Left, toType)
+		if err != nil {
+			return err
+		}
+		err = castExpr(e.Right, toType)
+		if err != nil {
+			return err
+		}
 		toTyp, ok := toType.(*PrimitiveType)
 		if !ok || !isTypeNumber_Type(toTyp) {
 			return NewLangError(InvalidCasting, e.ReturnType, toType).At(e.Line, e.Column)
@@ -587,8 +682,25 @@ func castExpr(expr Expression, toType Type) error {
 	case *CallExpr:
 		e.ReturnType = toType
 		return nil
+	case *ArrayLiteral:
+		toType, ok := toType.(*ContainerType)
+		if !ok {
+			return NewLangError(InvalidCasting, e.Type, toType).At(e.Line, e.Column)
+		}
+		e.Type = toType
+		for _, elem := range e.Elements {
+			err := castExpr(elem, toType.ElementType)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	case *ExplicitCast:
+		// I think it should be fine? Since it's handled by semantic analysis already
+		return nil
 	default:
 		line, col := expr.Pos()
+		// fmt.Printf("bruh: %+v", expr)
 		return NewLangError(InvalidCasting, getExprType(expr), toType).At(line, col)
 	}
 }

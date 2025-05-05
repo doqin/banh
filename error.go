@@ -28,7 +28,7 @@ var errorMessagesVi = map[ErrorID]string{
 	ExpectToken:            "Mong đợi %v ở vị trí này.",
 	UnexpectedToken:        "Không mong đợi ký hiệu '%v' ở vị trí này.",
 	WrongToken:             "Mong đợi ký hiệu '%v' thay vì '%v' ở vị trí này.",
-	TypeMismatch:           "Không thể gán kiểu '%v' cho '%v'.",
+	TypeMismatch:           "Sai kiểu '%v' thay vì '%v'.",
 	ReturnTypeMismatch:     "Không thể trả về giá trị kiểu '%v', mong đợi kiểu '%v'.",
 	UndeclaredIdentifier:   "Không tìm thấy định danh '%v'.",
 	MissingReturn:          "Thiếu câu lệnh trả về trong hàm có kiểu trả về '%v'.",
@@ -41,7 +41,7 @@ var errorMessagesVi = map[ErrorID]string{
 	InvalidIdentifierUsage: "Không thể đánh giá được cách sử dụng ký hiệu '%v'.",
 	UnknownIdentifierType:  "Ký hiệu không xác định.",
 	InvalidCasting:         "Không thể chuyển kiểu '%v' sang kiểu '%v'.",
-	ErrorBinaryExpr:        "Gặp sự cố khi thực hiện phép so sánh giữa '%v' và '%v'",
+	ErrorBinaryExpr:        "Không thể thực hiện phép toán giữa '%v' và '%v'",
 }
 
 type LangError struct {
