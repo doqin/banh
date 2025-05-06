@@ -233,3 +233,13 @@ type ExplicitCast struct {
 
 func (e *ExplicitCast) expressionNode() {}
 func (e *ExplicitCast) Pos() (int, int) { return e.Line, e.Column }
+
+type IndexExpr struct {
+	Collection Expression
+	Indices    []Expression // Can support multi dimensional indexing
+	Line       int
+	Column     int
+}
+
+func (i *IndexExpr) expressionNode() {}
+func (i *IndexExpr) Pos() (int, int) { return i.Line, i.Column }

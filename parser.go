@@ -357,24 +357,24 @@ func (p *Parser) parseVarDecl() (Statement, error) {
 
 func (p *Parser) parseArray() (*ArrayLiteral, error) {
 	line, col := p.current.Line, p.current.Column
-	if p.current.Lexeme != "{" {
-		return nil, NewLangError(ExpectToken, "{").At(p.current.Line, p.current.Column)
+	if p.current.Lexeme != "[" {
+		return nil, NewLangError(ExpectToken, "[").At(p.current.Line, p.current.Column)
 	}
-	p.nextToken() // Consumes "{"
+	p.nextToken() // Consumes "["
 	elements := []Expression{}
-	for p.current.Lexeme != "}" {
+	for p.current.Lexeme != "]" {
 		element, err := p.parseExpression(0)
 		if err != nil {
 			return nil, err
 		}
 		elements = append(elements, element)
-		if p.current.Lexeme != "}" && p.current.Lexeme != "," {
+		if p.current.Lexeme != "]" && p.current.Lexeme != "," {
 			return nil, NewLangError(ExpectToken, "}").At(p.current.Line, p.current.Column)
 		}
-		if p.current.Lexeme == "}" {
+		if p.current.Lexeme == "]" {
 			break
 		}
-		p.nextToken() // Consumes "}" or ","
+		p.nextToken() // Consumes "]" or ","
 	}
 	p.nextToken()
 	return &ArrayLiteral{Elements: elements, Type: &UnknownType{Name: "Unknown"}, Line: line, Column: col}, nil
@@ -614,6 +614,30 @@ func (p *Parser) parseCallExpr() (Expression, error) {
 	return &CallExpr{Name: fnName, Arguments: arguments, ReturnType: &UnknownType{Name: "Unknown"}, Line: line, Column: column}, nil
 }
 
+func (p *Parser) parseIndexSuffix(collection Expression) (Expression, error) {
+	line, column := p.current.Line, p.current.Column
+	p.nextToken() // Consumes "]"
+
+	indices := []Expression{}
+	for {
+		index, err := p.parseExpression(0)
+		if err != nil {
+			return nil, err
+		}
+		indices = append(indices, index)
+
+		if p.current.Lexeme == "]" {
+			break
+		}
+		if p.current.Lexeme != "," {
+			return nil, NewLangError(WrongToken, "]", p.current.Lexeme).At(p.current.Line, p.current.Column)
+		}
+		p.nextToken() // "Consumes ","
+	}
+	p.nextToken() // Consumes "]"
+	return &IndexExpr{Collection: collection, Indices: indices, Line: line, Column: column}, nil
+}
+
 func (p *Parser) parseExplicitCast() (Expression, error) {
 	line, column := p.current.Line, p.current.Column
 	castType := p.current.Lexeme // Primitive type
@@ -643,6 +667,16 @@ func (p *Parser) parseExpression(minPrec int) (Expression, error) {
 
 	// Parse binary operators according to precedence
 	for {
+		switch p.current.Type {
+		case TokenLBrack: // array[index]
+			left, err = p.parseIndexSuffix(left)
+			if err != nil {
+				return nil, err
+			}
+			continue
+		}
+
+		// Binary operators
 		prec := p.currentPrecedence()
 		if prec < minPrec {
 			break
@@ -711,7 +745,7 @@ func (p *Parser) parsePrimary() (Expression, error) {
 		}
 		p.nextToken() // Consumes ')'
 		return expr, nil
-	case TokenLBrace:
+	case TokenLBrack:
 		expr, err := p.parseArray()
 		if err != nil {
 			return nil, err

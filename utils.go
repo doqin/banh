@@ -103,6 +103,17 @@ func printExpression(e Expression, indent string) {
 		fmt.Printf("ExplicitCast: %s(", expr.Type.String())
 		printExpression(expr.Argument, indent)
 		fmt.Print(")")
+	case *IndexExpr:
+		fmt.Printf("IndexExpr: ")
+		printExpression(expr.Collection, indent)
+		fmt.Print("[")
+		for i, index := range expr.Indices {
+			printExpression(index, indent)
+			if i+1 < len(expr.Indices) {
+				fmt.Print(", ")
+			}
+		}
+		fmt.Print("]")
 	default:
 		fmt.Printf("Unknown Expression")
 	}

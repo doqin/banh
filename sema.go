@@ -284,6 +284,12 @@ func (tc *TypeChecker) AnalyzeExpression(expr Expression) error {
 			return err
 		}
 		return nil
+	case *IndexExpr:
+		err := tc.AnalyzeIndexExpr(e)
+		if err != nil {
+			return err
+		}
+		return nil
 	default:
 		line, col := e.Pos()
 		return NewLangError(UnknownExpression).At(line, col)
@@ -485,6 +491,55 @@ func (tc *TypeChecker) AnalyzeCallExpr(c *CallExpr) error {
 	return nil
 }
 
+func (tc *TypeChecker) AnalyzeIndexExpr(i *IndexExpr) error {
+	containerType := ContainerType{}
+
+	// Check collection type
+	switch collec := i.Collection.(type) {
+	case *Identifier:
+		err := tc.AnalyzeIdentifier(collec)
+		if err != nil {
+			return err
+		}
+		contain, ok := collec.Type.(*ContainerType)
+		if !ok {
+			line, col := i.Pos()
+			return NewLangError(InvalidArrayAccessType).At(line, col)
+		}
+		containerType = *contain
+	case *IndexExpr:
+		err := tc.AnalyzeIndexExpr(collec) // I think it's okay?
+		if err != nil {
+			return err
+		}
+		typ := tc.getExprType(collec)
+		contain, ok := typ.(*ContainerType)
+		if !ok {
+			line, col := i.Pos()
+			return NewLangError(InvalidArrayAccessType).At(line, col)
+		}
+		containerType = *contain
+	default:
+		line, col := i.Pos()
+		return NewLangError(InvalidArrayAccessType).At(line, col)
+	}
+	// Check indexing dimension
+	if len(i.Indices) != containerType.Dimensions {
+		line, col := i.Pos()
+		return NewLangError(InvalidArrayAccessDim, len(i.Indices), containerType.Dimensions).At(line, col)
+	}
+
+	// Check indexing type
+	for _, index := range i.Indices {
+		typ := tc.getExprType(index)
+		if !isTypeNumber_Type(typ) {
+			line, col := index.Pos()
+			return NewLangError(InvalidArrayAccessIndex).At(line, col)
+		}
+	}
+	return nil
+}
+
 // Helper
 func (tc *TypeChecker) getExprType(expr Expression) Type {
 	switch e := expr.(type) {
@@ -514,6 +569,28 @@ func (tc *TypeChecker) getExprType(expr Expression) Type {
 		return &e.Type
 	case *ArrayLiteral:
 		return e.Type
+	case *IndexExpr:
+		switch collec := e.Collection.(type) {
+		case *Identifier:
+			typ, ok := collec.Type.(*ContainerType)
+			if !ok {
+				line, col := e.Pos()
+				panic(NewLangError(InvalidArrayAccessType).At(line, col))
+			}
+			return typ
+		case *IndexExpr:
+			typ := tc.getExprType(collec)
+			containerType, ok := typ.(*ContainerType)
+			if !ok {
+				line, col := e.Pos()
+				panic(NewLangError(InvalidArrayAccessType).At(line, col))
+			}
+			// Removes one nested indexing
+			return containerType.ElementType
+		default:
+			line, col := e.Pos()
+			panic(NewLangError(InvalidArrayAccessType).At(line, col))
+		}
 	default:
 		return &UnknownType{Name: "Unknown"}
 	}

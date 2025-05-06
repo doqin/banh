@@ -13,11 +13,12 @@ import (
 )
 
 type CodegenContext struct {
-	Module      *ir.Module
-	Func        *ir.Func
-	Block       *ir.Block
-	Symbols     map[string]value.Value
-	ifIDCounter int
+	Module        *ir.Module
+	Func          *ir.Func
+	Block         *ir.Block
+	Symbols       map[string]value.Value
+	ifIDCounter   int
+	flowIDCounter int
 }
 
 // Function gen
@@ -188,7 +189,7 @@ func (i *IfStmt) Codegen(ctx *CodegenContext) (value.Value, error) {
 func (id *Identifier) Codegen(ctx *CodegenContext) (value.Value, error) {
 	alloca, ok := ctx.Symbols[id.Name]
 	if !ok {
-		// TODO: Handle this differently
+		// FIXME: Handle this differently
 		return nil, fmt.Errorf("unknown variable %s", id.Name)
 	}
 	return ctx.Block.NewLoad(alloca), nil
@@ -235,7 +236,6 @@ func (s *StructLiteral) Codegen(ctx *CodegenContext) (value.Value, error) {
 	return nil, nil
 }
 
-// TODO: Implement the array literal codegen
 func (a *ArrayLiteral) Codegen(ctx *CodegenContext) (value.Value, error) {
 	containerType, ok := a.Type.(*ContainerType)
 	if !ok {
@@ -398,7 +398,7 @@ func (c *CallExpr) Codegen(ctx *CodegenContext) (value.Value, error) {
 		if err != nil {
 			return nil, err
 		}
-		printf := ctx.GetOrDeclarePrintf()
+		printf := findFunction(ctx.Module, "printf")
 
 		var fmtStr string
 		switch argVal.Type().String() {
@@ -508,18 +508,109 @@ func (e *ExplicitCast) Codegen(ctx *CodegenContext) (value.Value, error) {
 			return val, nil
 		}
 	}
-
 	return nil, fmt.Errorf("unsupported cast from %v to %v", val.Type(), targetType)
+}
+
+func (i *IndexExpr) Codegen(ctx *CodegenContext) (value.Value, error) {
+	typ := getExprType(i.Collection)
+	containerType, ok := typ.(*ContainerType)
+	if !ok {
+		line, col := i.Pos()
+		return nil, NewLangError(InvalidArrayAccessType).At(line, col)
+	}
+
+	alloca, err := i.Collection.Codegen(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// FIXME: This is prob not optimized
+
+	// If alloca is not a pointer, allocate space for it and store it in memory
+	if _, ok := alloca.Type().(*types.PointerType); !ok {
+		tempAlloca := ctx.Block.NewAlloca(alloca.Type()) // Allocate space for the array
+		ctx.Block.NewStore(alloca, tempAlloca)           // Store the array in memory
+		alloca = tempAlloca                              // Update alloca to point to the allocated memory
+	}
+
+	indices := []value.Value{constant.NewInt(types.I64, 0)}
+	for j, index := range i.Indices {
+		indexVal, err := index.Codegen(ctx) // Should probably be an integer value
+		if err != nil {
+			return nil, err
+		}
+
+		_, ok := indexVal.Type().(*types.IntType)
+		if !ok {
+			line, col := index.Pos()
+			return nil, fmt.Errorf("[Dòng %d, Cột %d] Chỉ số của mảng phải là số nguyên", line, col) // TODO: Maybe add proper error type later
+		}
+
+		lowerBoundVal, err := containerType.Bounds[j].Codegen(ctx) // Should probably be an integer value
+		if err != nil {
+			return nil, err
+		}
+		upperBoundVal, err := containerType.Bounds[j+1].Codegen(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		lowerBound, ok1 := lowerBoundVal.(*constant.Int)
+		upperBound, ok2 := upperBoundVal.(*constant.Int)
+		if !ok1 || !ok2 {
+			return nil, errors.New("giới hạn của mảng phải là số nguyên")
+		}
+
+		icmpLower := ctx.Block.NewICmp(enum.IPredSGE, indexVal, lowerBound)
+		icmpUpper := ctx.Block.NewICmp(enum.IPredSLE, indexVal, upperBound)
+		inBounds := ctx.Block.NewAnd(icmpLower, icmpUpper)
+
+		// Control flow
+		flowID := ctx.NextFlowID()
+		fail := ctx.Func.NewBlock(fmt.Sprintf("fail.%d", flowID))
+		cont := ctx.Func.NewBlock(fmt.Sprintf("cont.%d", flowID))
+		ctx.Block.NewCondBr(inBounds, cont, fail)
+
+		ctx.Block = fail
+		oobstr := findGlobal(ctx.Module, ".errstr_array_oob")
+		if oobstr == nil {
+			return nil, errors.New("không tìm thấy chuỗi mã lỗi")
+		}
+		strPtr := ctx.Block.NewGetElementPtr(
+			oobstr,
+			constant.NewInt(types.I64, 0), // struct index
+			constant.NewInt(types.I64, 0), // char* offset
+		)
+		puts := findFunction(ctx.Module, "puts")
+		if puts == nil {
+			return nil, errors.New("không tìm thấy hàm ngoại 'puts()'")
+		}
+		exit := findFunction(ctx.Module, "exit")
+		if exit == nil {
+			return nil, errors.New("không tìm thấy hàm ngoại 'exit()'")
+		}
+		ctx.Block.NewCall(puts, strPtr)
+		ctx.Block.NewCall(exit, constant.NewInt(types.I32, 1))
+		ctx.Block.NewUnreachable()
+		ctx.Block = cont
+
+		offset := ctx.Block.NewSub(indexVal, lowerBound)
+		indices = append(indices, offset)
+	}
+	gep := ctx.Block.NewGetElementPtr(alloca, indices...)
+	return ctx.Block.NewLoad(gep), nil
 }
 
 func GenerateLLVMIR(prog *Program) (*ir.Module, error) {
 	ctx := &CodegenContext{
-		Module:      ir.NewModule(),
-		Symbols:     make(map[string]value.Value),
-		ifIDCounter: 0,
+		Module:        ir.NewModule(),
+		Symbols:       make(map[string]value.Value),
+		ifIDCounter:   0,
+		flowIDCounter: 0,
 	}
 
-	ctx.GetOrDeclarePrintf() // Declare printf
+	declareRuntimeHelper(ctx.Module) // Declare external functions like printf(), puts(), exit()
+	ctx.DeclareGlobal()
 	for _, fn := range prog.Functions {
 		_, err := fn.Codegen(ctx)
 		if err != nil {
@@ -613,6 +704,15 @@ func findFunction(module *ir.Module, funcName string) *ir.Func {
 	return nil
 }
 
+func findGlobal(module *ir.Module, globalName string) *ir.Global {
+	for _, global := range module.Globals {
+		if global.Name() == globalName {
+			return global
+		}
+	}
+	return nil
+}
+
 func canICmp(left value.Value, right value.Value) bool {
 	leftType := left.Type()
 	rightType := right.Type()
@@ -642,6 +742,11 @@ func (ctx *CodegenContext) NextIfID() int {
 	return ctx.ifIDCounter
 }
 
+func (ctx *CodegenContext) NextFlowID() int {
+	ctx.flowIDCounter++
+	return ctx.flowIDCounter
+}
+
 func (ctx *CodegenContext) GetOrCreateGlobalString(name, value string) *ir.Global {
 	for _, g := range ctx.Module.Globals {
 		if g.Name() == name {
@@ -656,14 +761,20 @@ func (ctx *CodegenContext) GetOrCreateGlobalString(name, value string) *ir.Globa
 	return global
 }
 
-func (ctx *CodegenContext) GetOrDeclarePrintf() *ir.Func {
-	printf := findFunction(ctx.Module, "printf")
-	if printf != nil {
-		return printf
-	}
+func (ctx *CodegenContext) DeclareGlobal() {
+	// Create error string for out of bound array access
+	ctx.Module.NewGlobalDef(".errstr_array_oob", constant.NewCharArrayFromString("chỉ số của mảng nằm ngoài giới hạn\n"))
+}
+
+func declareRuntimeHelper(mod *ir.Module) {
 	// printf: i32(i8*, ...)
-	printf = ctx.Module.NewFunc("printf", types.I32, ir.NewParam("fmt", types.NewPointer(types.I8)))
+	printf := mod.NewFunc("printf", types.I32, ir.NewParam("fmt", types.NewPointer(types.I8)))
 	printf.Sig.Variadic = true
-	printf.Linkage = enum.LinkageExternal // right? 🤔
-	return printf
+	printf.Linkage = enum.LinkageExternal
+	// Error handling
+	puts := mod.NewFunc("puts", types.I32, ir.NewParam("", types.NewPointer(types.I8)))
+	puts.Linkage = enum.LinkageExternal
+	// Exit code
+	exit := mod.NewFunc("exit", types.Void, ir.NewParam("status", types.I32))
+	exit.Linkage = enum.LinkageExternal
 }
