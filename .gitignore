@@ -11,7 +11,7 @@
 *.o
 *.ll
 
-banh
+lobanh
 main
 congthuc.toml
 nguon/

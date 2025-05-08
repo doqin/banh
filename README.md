@@ -24,6 +24,10 @@ hàm cộng(a E Z32, b E Z32) -> Z32
 kết thúc
 ```
 
+## Thông tin
+Là Frontend LLVM, sử dụng LLC + Clang với LLI ngầm để tạo chương trình/chạy code.
+
+
 ## Tính năng
 
 - [x] Tạo biến
@@ -36,9 +40,17 @@ kết thúc
 
 - [x] In giá trị ra
 
-- [ ] Thư viện sẵn
+- [x] Mảng
+
+- [ ] Chuỗi
 
 - [ ] Dữ liệu có cấu trúc
+
+- [ ] Thư viện sẵn
+
+- [ ] Chương trình nhiều tệp nguồn
+
+- [ ] Ma trận
 
 - [ ] Sử dụng hàm ffi (?)
 

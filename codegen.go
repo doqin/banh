@@ -638,6 +638,7 @@ func llvmTypeFromType(typ Type, ctx *CodegenContext) (types.Type, error) {
 
 		// Only supports regular array for now
 		if len(typ.Bounds) != 2 {
+			fmt.Printf("%+v\n", typ.Bounds)
 			return nil, errors.New("mảng phải có đúng 2 giới hạn (sàn và trần)")
 		}
 
@@ -688,8 +689,6 @@ func llvmTypeFromPrimitive(typ Type) (types.Type, error) {
 		default:
 			return nil, fmt.Errorf("không xác định được kiểu dữ liệu nguyên thuỷ") // TODO: Make a proper error message
 		}
-	// TODO: Implement case *ContainerType:
-	// TODO: Implement case *StructType:
 	default:
 		return nil, fmt.Errorf("không xác định được kiểu dữ liệu") // TODO: Make a proper error message
 	}

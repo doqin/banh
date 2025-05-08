@@ -1,4 +1,4 @@
-module banh
+module lobanh
 
 go 1.24.2
 

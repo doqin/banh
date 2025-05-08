@@ -383,7 +383,6 @@ func (p *Parser) parseArray() (*ArrayLiteral, error) {
 func (p *Parser) parseVarIdent() (string, Type, error) {
 	// Checks for identifier
 	if p.current.Type != TokenIdent {
-		// TODO: Change accordingly
 		return "", nil, NewLangError(WrongToken, "tên biến", p.current.Lexeme).At(p.current.Line, p.current.Column)
 	}
 	varName := p.current.Lexeme
@@ -427,44 +426,62 @@ func (p *Parser) parseType() (Type, error) {
 		}
 		var bounds []Expression
 
-		// Get the bounds
-		for range dimension {
-			if p.current.Type != TokenLBrack {
-				return nil, NewLangError(WrongToken, "[", p.current.Lexeme).At(p.current.Line, p.current.Column)
-			}
-			p.nextToken()
-			leftBound, err := p.parseExpression(0) // Get Left Bound
-			if err != nil {
-				return nil, err
-			}
-			// Handle left bound type
-			typeInterface := getExprType(leftBound)
-			typ, ok := typeInterface.(*PrimitiveType)
-			if (ok && typ.Name == PrimitiveR32 || typ.Name == PrimitiveR64) || !ok {
-				return nil, NewLangError(ExpectToken, "số tự nhiên hoặc số nguyên").At(p.current.Line, p.current.Column)
-			}
-			if p.current.Lexeme != SymbolDotDot {
-				return nil, NewLangError(WrongToken, SymbolDotDot, p.current.Lexeme).At(p.current.Line, p.current.Column)
-			}
-			p.nextToken()
-			rightBound, err := p.parseExpression(0) // Get Right Bound
-			if err != nil {
-				return nil, err
-			}
-			// Handle right bound type
-			typeInterface = getExprType(rightBound)
-			typ, ok = typeInterface.(*PrimitiveType)
-			if (ok && typ.Name == PrimitiveR32 || typ.Name == PrimitiveR64) || !ok {
-				return nil, NewLangError(ExpectToken, "số tự nhiên hoặc số nguyên").At(p.current.Line, p.current.Column)
-			}
-			// Close the range expression
-			if p.current.Type != TokenRBrack {
-				return nil, NewLangError(WrongToken, "]", p.current.Lexeme).At(p.current.Line, p.current.Column)
-			}
-			p.nextToken() // Consumes the ']'
-			bounds = append(bounds, leftBound)
-			bounds = append(bounds, rightBound)
+		// Begind boundary/size declaration
+		if p.current.Type != TokenLBrack {
+			return nil, NewLangError(WrongToken, "[", p.current.Lexeme).At(p.current.Line, p.current.Column)
 		}
+		p.nextToken()
+
+		if p.current.Type != TokenRBrack {
+			// Get the bounds
+			for i := range dimension {
+				leftBound, err := p.parseExpression(0) // Get Left Bound
+				if err != nil {
+					return nil, err
+				}
+				// Handle left bound type
+				typeInterface := getExprType(leftBound)
+				typ, ok := typeInterface.(*PrimitiveType)
+				if (ok && typ.Name == PrimitiveR32 || typ.Name == PrimitiveR64) || !ok {
+					return nil, NewLangError(ExpectToken, "số tự nhiên hoặc số nguyên").At(p.current.Line, p.current.Column)
+				}
+				// Optional size declaration instead of bounds
+				if (i+1 == dimension && p.current.Type == TokenRBrack) || (i+1 < dimension && p.current.Type == TokenComma) {
+					line, col := leftBound.Pos()
+					bounds = append(bounds, &NumberLiteral{Value: "1", Type: PrimitiveType{Name: PrimitiveZ64}, Line: line, Column: col})
+					bounds = append(bounds, leftBound)
+					continue
+				}
+				if p.current.Lexeme != SymbolDotDot {
+					return nil, NewLangError(WrongToken, SymbolDotDot, p.current.Lexeme).At(p.current.Line, p.current.Column)
+				}
+				p.nextToken()
+				rightBound, err := p.parseExpression(0) // Get Right Bound
+				if err != nil {
+					return nil, err
+				}
+				// Handle right bound type
+				typeInterface = getExprType(rightBound)
+				typ, ok = typeInterface.(*PrimitiveType)
+				if (ok && typ.Name == PrimitiveR32 || typ.Name == PrimitiveR64) || !ok {
+					return nil, NewLangError(ExpectToken, "số tự nhiên hoặc số nguyên").At(p.current.Line, p.current.Column)
+				}
+				// Next range
+				if i+1 < dimension {
+					if p.current.Type != TokenComma {
+						return nil, NewLangError(WrongToken, ",", p.current.Lexeme).At(p.current.Line, p.current.Column)
+					}
+					p.nextToken() // Consumes the ','
+				}
+				bounds = append(bounds, leftBound)
+				bounds = append(bounds, rightBound)
+			}
+		}
+		// Close the range expression
+		if p.current.Type != TokenRBrack {
+			return nil, NewLangError(WrongToken, "]", p.current.Lexeme).At(p.current.Line, p.current.Column)
+		}
+		p.nextToken() // Consumes the ']'
 		if p.current.Type != TokenOperator || p.current.Lexeme != SymbolMember {
 			return nil, NewLangError(WrongToken, SymbolMember, p.current.Lexeme).At(p.current.Line, p.current.Column)
 		}
@@ -473,7 +490,11 @@ func (p *Parser) parseType() (Type, error) {
 		if err != nil {
 			return nil, err
 		}
-		varType := &ContainerType{Kind: containerKind, ElementType: elementType, Dimensions: dimension, Bounds: bounds}
+		isDynamic := false
+		if len(bounds) == 0 {
+			isDynamic = true
+		}
+		varType := &ContainerType{Kind: containerKind, ElementType: elementType, Dimensions: dimension, Bounds: bounds, IsDynamic: isDynamic}
 		return varType, nil
 	default:
 		return nil, NewLangError(ExpectToken, "kiểu dữ liệu").At(p.current.Line, p.current.Column)
@@ -616,7 +637,7 @@ func (p *Parser) parseCallExpr() (Expression, error) {
 
 func (p *Parser) parseIndexSuffix(collection Expression) (Expression, error) {
 	line, column := p.current.Line, p.current.Column
-	p.nextToken() // Consumes "]"
+	p.nextToken() // Consumes "["
 
 	indices := []Expression{}
 	for {
@@ -848,6 +869,8 @@ func getExprType(expr Expression) Type {
 		return e.ReturnType
 	case *ExplicitCast:
 		return &e.Type
+	case *ArrayLiteral:
+		return e.Type
 	default:
 		return &UnknownType{Name: "Unknown"}
 	}

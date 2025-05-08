@@ -47,6 +47,7 @@ type ContainerType struct {
 	ElementType Type
 	Dimensions  int
 	Bounds      []Expression
+	IsDynamic   bool
 }
 
 func (c *ContainerType) String() string {
