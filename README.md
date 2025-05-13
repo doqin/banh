@@ -1,3 +1,8 @@
+# Chú thích
+Dự án này đã bị hoãn để tập trung vào dự án viết lại bằng C++:
+
+[![Readme Card](https://github-readme-stats.vercel.app/api/pin/?username=dev-bao&repo=bao)]([https://github.com/anuraghazra/github-readme-stats](https://github.com/dev-bao/bao))
+
 # Bánh 🥖
 > "Dễ như ăn 'Bánh'"
 >
